@@ -3,3 +3,4 @@ Shopping List
 - Milk
 - Bread
 - Eggs
+Cheese
