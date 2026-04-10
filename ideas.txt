@@ -1,0 +1,5 @@
+Project Ideas
+=============
+- A weather app
+- A recipe finder
+- A budget tracker
