@@ -9,7 +9,8 @@ import ImageViewer from "@/components/ImageViewer";
 const PdfViewer = dynamic(() => import("@/components/PdfViewer"), {
   ssr: false,
   loading: () => (
-    <div className="flex h-full items-center justify-center text-gray-500">
+    <div className="flex h-full items-center justify-center bg-white text-sm text-gray-500">
+      <span className="inline-block h-5 w-5 animate-spin rounded-full border-2 border-gray-400 border-t-transparent mr-3" />
       Loading viewer...
     </div>
   ),
@@ -29,7 +30,7 @@ export default function DocumentPane({ files }: DocumentPaneProps) {
   const isPdf = activeFile.mimeType === "application/pdf";
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col bg-white">
       <DocumentTabBar
         files={files}
         activeId={activeFile.id}
