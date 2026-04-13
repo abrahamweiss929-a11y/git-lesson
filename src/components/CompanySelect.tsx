@@ -10,12 +10,16 @@ interface CompanySelectProps {
   value: number | null;
   onChange: (companyId: number) => void;
   label?: string;
+  refreshKey?: number;
+  className?: string;
 }
 
 export default function CompanySelect({
   value,
   onChange,
   label = "Company",
+  refreshKey,
+  className,
 }: CompanySelectProps) {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [adding, setAdding] = useState(false);
@@ -32,7 +36,8 @@ export default function CompanySelect({
 
   useEffect(() => {
     fetchCompanies();
-  }, [fetchCompanies]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchCompanies, refreshKey]);
 
   function handleSelectChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const val = e.target.value;
@@ -128,7 +133,7 @@ export default function CompanySelect({
       <select
         value={value ?? ""}
         onChange={handleSelectChange}
-        className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none bg-white"
+        className={`w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none bg-white ${className ?? ""}`}
       >
         <option value="" disabled>
           Select company...
