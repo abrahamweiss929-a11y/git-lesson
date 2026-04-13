@@ -6,6 +6,13 @@ import type {
   ExtractDocumentError,
 } from "@/lib/extract-document.types";
 
+export interface UploadedFileInfo {
+  id: string;
+  name: string;
+  mimeType: string;
+  objectUrl: string;
+}
+
 const ACCEPTED_TYPES = [
   "image/jpeg",
   "image/png",
@@ -17,6 +24,7 @@ const ACCEPT_STRING = ".jpg,.jpeg,.png,.webp,.pdf";
 
 interface DocumentUploadProps {
   onExtracted: (result: ExtractDocumentResponse) => void;
+  onFilesReady?: (files: UploadedFileInfo[]) => void;
   disabled?: boolean;
   context: "receipt" | "order";
 }
@@ -62,6 +70,7 @@ function mergeResults(entries: FileEntry[]): ExtractDocumentResponse | null {
 
 export default function DocumentUpload({
   onExtracted,
+  onFilesReady,
   disabled,
   context,
 }: DocumentUploadProps) {
@@ -180,12 +189,24 @@ export default function DocumentUpload({
     const merged = mergeResults(results);
     if (merged) {
       onExtracted(merged);
+
+      // Expose file data for document viewer
+      const fileInfos: UploadedFileInfo[] = results
+        .filter((e) => e.status === "done")
+        .map((e) => ({
+          id: e.id,
+          name: e.file.name,
+          mimeType: e.file.type,
+          objectUrl: URL.createObjectURL(e.file),
+        }));
+      onFilesReady?.(fileInfos);
     }
   }
 
   function handleReset() {
     setFiles([]);
     if (inputRef.current) inputRef.current.value = "";
+    onFilesReady?.([]);
   }
 
   const hasFiles = files.length > 0;
