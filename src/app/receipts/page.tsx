@@ -240,7 +240,7 @@ export default function ReceiptsPage() {
 
       {/* Document upload widget */}
       <div className="mb-4">
-        <DocumentUpload onExtracted={handleExtracted} disabled={saving} />
+        <DocumentUpload onExtracted={handleExtracted} disabled={saving} context="receipt" />
       </div>
 
       {/* AI field counter */}

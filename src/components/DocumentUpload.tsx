@@ -18,69 +18,117 @@ const ACCEPT_STRING = ".jpg,.jpeg,.png,.webp,.pdf";
 interface DocumentUploadProps {
   onExtracted: (result: ExtractDocumentResponse) => void;
   disabled?: boolean;
+  context: "receipt" | "order";
 }
 
-type Status = "idle" | "reading" | "extracting" | "done" | "error";
+type FileStatus = "pending" | "reading" | "extracting" | "done" | "error";
+
+interface FileEntry {
+  id: string;
+  file: File;
+  status: FileStatus;
+  errorMessage?: string;
+  result?: ExtractDocumentResponse;
+}
+
+function mergeResults(entries: FileEntry[]): ExtractDocumentResponse | null {
+  const successful = entries.filter((e) => e.status === "done" && e.result);
+  if (successful.length === 0) return null;
+
+  const allLineItems = successful.flatMap((e) => e.result!.line_items);
+  const firstCompany =
+    successful.find((e) => e.result!.company_match)?.result?.company_match ??
+    null;
+  const firstCompanyRaw =
+    successful.find((e) => e.result!.company_name_raw)?.result
+      ?.company_name_raw ?? null;
+  const firstDate =
+    successful.find((e) => e.result!.date)?.result?.date ?? null;
+  const allNotes = successful
+    .map((e) => e.result!.confidence_notes)
+    .filter(Boolean)
+    .join(" | ");
+  const firstDocType = successful[0].result!.document_type;
+
+  return {
+    company_match: firstCompany,
+    company_name_raw: firstCompanyRaw,
+    date: firstDate,
+    line_items: allLineItems,
+    confidence_notes: allNotes,
+    document_type: firstDocType,
+  };
+}
 
 export default function DocumentUpload({
   onExtracted,
   disabled,
+  context,
 }: DocumentUploadProps) {
-  const [file, setFile] = useState<File | null>(null);
-  const [status, setStatus] = useState<Status>("idle");
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [files, setFiles] = useState<FileEntry[]>([]);
+  const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const selected = e.target.files?.[0] ?? null;
-    setFile(selected);
-    setStatus("idle");
-    setErrorMessage(null);
+    const selected = e.target.files;
+    if (!selected || selected.length === 0) return;
+
+    const entries: FileEntry[] = Array.from(selected).map((file) => ({
+      id: crypto.randomUUID(),
+      file,
+      status: "pending" as FileStatus,
+    }));
+    setFiles(entries);
   }
 
-  async function handleExtract() {
-    if (!file) return;
-
+  async function extractSingleFile(entry: FileEntry): Promise<FileEntry> {
     // Client-side validation
-    if (!ACCEPTED_TYPES.includes(file.type)) {
-      setStatus("error");
-      setErrorMessage(
-        `Unsupported file type. Allowed: JPG, PNG, WebP, PDF.`
-      );
-      return;
+    if (!ACCEPTED_TYPES.includes(entry.file.type)) {
+      return {
+        ...entry,
+        status: "error",
+        errorMessage: "Unsupported file type. Allowed: JPG, PNG, WebP, PDF.",
+      };
     }
-    if (file.size > MAX_SIZE) {
-      setStatus("error");
-      setErrorMessage("File too large (max 10 MB).");
-      return;
+    if (entry.file.size > MAX_SIZE) {
+      return {
+        ...entry,
+        status: "error",
+        errorMessage: "File too large (max 10 MB).",
+      };
     }
 
-    setStatus("reading");
-    setErrorMessage(null);
+    // Read file as base64
+    setFiles((prev) =>
+      prev.map((f) => (f.id === entry.id ? { ...f, status: "reading" } : f))
+    );
 
     try {
-      // Read file as base64
       const base64 = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => {
           const result = reader.result as string;
-          // Strip the data URI prefix (e.g. "data:image/jpeg;base64,")
           const base64Data = result.split(",")[1];
           resolve(base64Data);
         };
         reader.onerror = () => reject(new Error("Failed to read file."));
-        reader.readAsDataURL(file);
+        reader.readAsDataURL(entry.file);
       });
 
-      setStatus("extracting");
+      setFiles((prev) =>
+        prev.map((f) =>
+          f.id === entry.id ? { ...f, status: "extracting" } : f
+        )
+      );
 
       const res = await fetch("/api/extract-document", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           file_base64: base64,
-          mime_type: file.type,
-          file_name: file.name,
+          mime_type: entry.file.type,
+          file_name: entry.file.name,
+          context,
         }),
       });
 
@@ -92,38 +140,67 @@ export default function DocumentUpload({
       const data: ExtractDocumentResponse = await res.json();
 
       if (data.line_items.length === 0) {
-        setStatus("error");
-        setErrorMessage(
-          "No line items detected in this document. Please add items manually."
-        );
-        return;
+        return {
+          ...entry,
+          status: "error",
+          errorMessage: "No line items detected in this document.",
+        };
       }
 
-      setStatus("done");
-      onExtracted(data);
+      return { ...entry, status: "done", result: data };
     } catch (err) {
-      setStatus("error");
-      setErrorMessage(
-        err instanceof Error
-          ? err.message
-          : "Extraction failed. Please fill the form manually."
+      return {
+        ...entry,
+        status: "error",
+        errorMessage:
+          err instanceof Error
+            ? err.message
+            : "Extraction failed. Please fill the form manually.",
+      };
+    }
+  }
+
+  async function handleExtract() {
+    if (files.length === 0) return;
+
+    setBusy(true);
+
+    // Process files sequentially to avoid overwhelming the API
+    const results: FileEntry[] = [];
+    for (const entry of files) {
+      const result = await extractSingleFile(entry);
+      results.push(result);
+      setFiles((prev) =>
+        prev.map((f) => (f.id === result.id ? result : f))
       );
+    }
+
+    setBusy(false);
+
+    const merged = mergeResults(results);
+    if (merged) {
+      onExtracted(merged);
     }
   }
 
   function handleReset() {
-    setFile(null);
-    setStatus("idle");
-    setErrorMessage(null);
+    setFiles([]);
     if (inputRef.current) inputRef.current.value = "";
   }
 
-  const busy = status === "reading" || status === "extracting";
+  const hasFiles = files.length > 0;
+  const allDone =
+    hasFiles &&
+    files.every((f) => f.status === "done" || f.status === "error");
+  const doneCount = files.filter((f) => f.status === "done").length;
+  const totalItems = files
+    .filter((f) => f.status === "done" && f.result)
+    .reduce((sum, f) => sum + f.result!.line_items.length, 0);
 
   return (
     <div className="rounded-md border border-dashed border-gray-300 bg-white p-4">
       <p className="text-sm font-medium text-gray-700 mb-3">
-        Upload Document (Optional)
+        Upload Document{files.length !== 1 ? "s" : ""} (Optional)
       </p>
 
       <div className="flex flex-wrap items-center gap-3">
@@ -131,6 +208,7 @@ export default function DocumentUpload({
           ref={inputRef}
           type="file"
           accept={ACCEPT_STRING}
+          multiple
           onChange={handleFileChange}
           disabled={disabled || busy}
           className="text-sm text-gray-600 file:mr-3 file:rounded-md file:border-0 file:bg-gray-100 file:px-3 file:py-2 file:text-sm file:font-medium file:text-gray-700 hover:file:bg-gray-200"
@@ -138,19 +216,19 @@ export default function DocumentUpload({
         <button
           type="button"
           onClick={handleExtract}
-          disabled={!file || busy || disabled}
+          disabled={!hasFiles || busy || disabled}
           className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
         >
           {busy ? (
             <span className="flex items-center gap-2">
               <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-              {status === "reading" ? "Reading file..." : "Extracting with AI..."}
+              Extracting...
             </span>
           ) : (
             "Extract with AI"
           )}
         </button>
-        {status === "done" && (
+        {allDone && (
           <button
             type="button"
             onClick={handleReset}
@@ -161,14 +239,69 @@ export default function DocumentUpload({
         )}
       </div>
 
-      {status === "done" && (
+      {/* Per-file status list (multi-file only) */}
+      {files.length > 1 && (
+        <ul className="mt-3 space-y-1">
+          {files.map((entry) => (
+            <li key={entry.id} className="flex items-center gap-2 text-sm">
+              {entry.status === "pending" && (
+                <span className="text-gray-400">&#9679;</span>
+              )}
+              {(entry.status === "reading" ||
+                entry.status === "extracting") && (
+                <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
+              )}
+              {entry.status === "done" && (
+                <span className="text-green-600">&#10003;</span>
+              )}
+              {entry.status === "error" && (
+                <span className="text-red-500">&#10007;</span>
+              )}
+              <span
+                className={
+                  entry.status === "error"
+                    ? "text-red-600"
+                    : entry.status === "done"
+                      ? "text-green-700"
+                      : "text-gray-600"
+                }
+              >
+                {entry.file.name}
+                {entry.status === "reading" && " — Reading..."}
+                {entry.status === "extracting" && " — Extracting..."}
+                {entry.status === "done" &&
+                  entry.result &&
+                  ` — ${entry.result.line_items.length} item${entry.result.line_items.length !== 1 ? "s" : ""}`}
+                {entry.status === "error" &&
+                  entry.errorMessage &&
+                  ` — ${entry.errorMessage}`}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/* Single-file status messages */}
+      {files.length === 1 && files[0].status === "done" && (
         <p className="mt-2 text-sm text-green-700">
-          &#10003; Data extracted from {file?.name}
+          &#10003; Data extracted from {files[0].file.name}
         </p>
       )}
 
-      {status === "error" && errorMessage && (
-        <p className="mt-2 text-sm text-red-600">{errorMessage}</p>
+      {files.length === 1 &&
+        files[0].status === "error" &&
+        files[0].errorMessage && (
+          <p className="mt-2 text-sm text-red-600">
+            {files[0].errorMessage}
+          </p>
+        )}
+
+      {/* Multi-file summary */}
+      {files.length > 1 && allDone && doneCount > 0 && (
+        <p className="mt-2 text-sm text-green-700">
+          &#10003; Extracted {totalItems} item{totalItems !== 1 ? "s" : ""}{" "}
+          from {doneCount} file{doneCount !== 1 ? "s" : ""}
+        </p>
       )}
     </div>
   );
