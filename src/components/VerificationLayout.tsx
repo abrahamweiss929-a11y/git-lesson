@@ -27,7 +27,10 @@ export default function VerificationLayout({
 
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({
     id: "doc-verification-pane",
-    storage: typeof window !== "undefined" ? localStorage : undefined,
+    storage:
+      typeof window !== "undefined"
+        ? localStorage
+        : { getItem: () => null, setItem: () => {} },
   });
 
   // No documents — render standard single-column layout
