@@ -22,13 +22,14 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 const MAX_PIXELS = 3_750_000; // 3.75 MP
 const MAX_EDGE = 1568;
 
-const SYSTEM_PROMPT = `You are a data extraction assistant for a laboratory inventory management system.
+const SYSTEM_PROMPT_SHARED_PREFIX = `You are a data extraction assistant for a laboratory inventory management system.
 You will receive a document (invoice, packing slip, receipt, or purchase order)
 and must extract structured data about the items being received or ordered.
 
 Return your response as a single valid JSON object with this exact shape, and
-NOTHING else — no prose, no markdown code blocks, no explanation:
+NOTHING else — no prose, no markdown code blocks, no explanation:`;
 
+const RECEIPT_SCHEMA = `
 {
   "document_type": "invoice" | "packing_slip" | "receipt" | "purchase_order" | "unknown",
   "company_name": string or null,
@@ -57,7 +58,37 @@ FIELD GUIDANCE:
   "Exp", "Expiration", "Use By", "Best By". Format YYYY-MM-DD. If not
   shown, use null.
 - confidence_notes: Briefly note anything unclear, partially obscured,
-  or that you had to guess. Empty string if everything was clear.
+  or that you had to guess. Empty string if everything was clear.`;
+
+const ORDER_SCHEMA = `
+{
+  "document_type": "invoice" | "packing_slip" | "receipt" | "purchase_order" | "unknown",
+  "company_name": string or null,
+  "date": "YYYY-MM-DD" or null,
+  "line_items": [
+    {
+      "item_number": string,
+      "qty": number,
+      "unit_price": number or null
+    }
+  ],
+  "confidence_notes": string
+}
+
+FIELD GUIDANCE:
+- company_name: The supplier/vendor selling the items, NOT the buyer/lab
+- date: Order date, invoice date, or ship date, not due date. Format as YYYY-MM-DD.
+- item_number: The supplier's catalog/SKU/part number. May be labeled
+  "Item #", "Catalog #", "Product Code", "SKU", "Part Number", "Ref"
+- qty: The quantity ordered. Must be a number, not a string.
+- unit_price: The price per unit/box. May be labeled "Unit Price", "Price",
+  "Cost", "Each", "Rate", "Unit Cost". Use the per-unit amount, NOT the
+  extended/line total. If only the line total is shown and qty > 1, divide
+  to get the unit price. If not shown, use null.
+- confidence_notes: Briefly note anything unclear, partially obscured,
+  or that you had to guess. Empty string if everything was clear.`;
+
+const SHARED_RULES = `
 
 RULES:
 - If the document has multiple pages or sections, extract ALL line items
@@ -70,6 +101,11 @@ RULES:
 - Do NOT extract items that are marked as "out of stock", "cancelled",
   or "backordered" — only items actually being shipped/ordered
 - Do NOT include shipping fees, taxes, or discount lines as line items`;
+
+function buildSystemPrompt(context: "receipt" | "order"): string {
+  const schema = context === "order" ? ORDER_SCHEMA : RECEIPT_SCHEMA;
+  return SYSTEM_PROMPT_SHARED_PREFIX + schema + SHARED_RULES;
+}
 
 const USER_MESSAGE =
   "Extract the inventory data from this document following the schema in your instructions. Return only the JSON object.";
@@ -87,7 +123,7 @@ export async function POST(
 ): Promise<NextResponse<ExtractDocumentResponse | ExtractDocumentError>> {
   try {
     const body: ExtractDocumentRequest = await request.json();
-    const { file_base64, mime_type, file_name } = body;
+    const { file_base64, mime_type, file_name, context = "receipt" } = body;
 
     // Validate MIME type
     if (!ALLOWED_MIME_TYPES.includes(mime_type)) {
@@ -158,7 +194,7 @@ export async function POST(
     const response = await anthropic.messages.create({
       model: "claude-sonnet-4-5-20250929",
       max_tokens: 4096,
-      system: SYSTEM_PROMPT,
+      system: buildSystemPrompt(context),
       messages: [
         {
           role: "user",
@@ -195,6 +231,7 @@ export async function POST(
         qty?: number;
         lot_number?: string | null;
         expiration?: string | null;
+        unit_price?: number | null;
       }>;
       confidence_notes?: string;
     };
@@ -217,16 +254,29 @@ export async function POST(
       );
     }
 
-    // Map AI field names to form field names
-    const lineItems = parsed.line_items.map((item) => {
-      const qty = Number(item.qty);
-      return {
-        item_number: String(item.item_number ?? ""),
-        quantity_boxes: Number.isFinite(qty) ? qty : 0,
-        lot_number: String(item.lot_number ?? ""),
-        expiration_date: item.expiration ?? null,
-      };
-    });
+    // Map AI field names to form field names (context-dependent)
+    const lineItems =
+      context === "order"
+        ? parsed.line_items.map((item) => {
+            const qty = Number(item.qty);
+            const price =
+              item.unit_price != null ? Number(item.unit_price) : null;
+            return {
+              item_number: String(item.item_number ?? ""),
+              quantity_boxes: Number.isFinite(qty) ? qty : 0,
+              price:
+                price != null && Number.isFinite(price) ? price : null,
+            };
+          })
+        : parsed.line_items.map((item) => {
+            const qty = Number(item.qty);
+            return {
+              item_number: String(item.item_number ?? ""),
+              quantity_boxes: Number.isFinite(qty) ? qty : 0,
+              lot_number: String(item.lot_number ?? ""),
+              expiration_date: item.expiration ?? null,
+            };
+          });
 
     // Fuzzy-match company
     let companyMatch: { id: number; name: string } | null = null;

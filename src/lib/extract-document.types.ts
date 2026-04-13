@@ -3,14 +3,16 @@ export interface ExtractDocumentRequest {
   file_base64: string; // base64-encoded file content (no data URI prefix)
   mime_type: string; // e.g. "image/jpeg", "application/pdf"
   file_name: string; // original filename for display/logging
+  context: "receipt" | "order"; // determines which fields Claude extracts
 }
 
 // A single line item extracted by Claude (mapped to match form field names)
 export interface ExtractedLineItem {
   item_number: string;
   quantity_boxes: number;
-  lot_number: string;
-  expiration_date: string | null; // ISO date string or null
+  lot_number?: string; // receipt-only
+  expiration_date?: string | null; // receipt-only (ISO date string or null)
+  price?: number | null; // order-only
 }
 
 // Successful API response
