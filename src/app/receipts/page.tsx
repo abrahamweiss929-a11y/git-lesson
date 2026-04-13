@@ -2,8 +2,12 @@
 
 import { useState } from "react";
 import { supabase } from "@/lib/supabase";
+import type { ExtractDocumentResponse } from "@/lib/extract-document.types";
 import CompanySelect from "@/components/CompanySelect";
 import StatusMessage from "@/components/StatusMessage";
+import DocumentUpload from "@/components/DocumentUpload";
+import CompanyMatchBanner from "@/components/CompanyMatchBanner";
+import AiFieldCounter from "@/components/AiFieldCounter";
 
 interface ReceiptLineForm {
   key: string;
@@ -28,6 +32,7 @@ function todayISO() {
 }
 
 export default function ReceiptsPage() {
+  // --- v1 form state (unchanged defaults) ---
   const [companyId, setCompanyId] = useState<number | null>(null);
   const [date, setDate] = useState(todayISO());
   const [lines, setLines] = useState<ReceiptLineForm[]>([emptyLine()]);
@@ -37,6 +42,34 @@ export default function ReceiptsPage() {
     message: string;
   } | null>(null);
 
+  // --- v2 AI state ---
+  const [extractionResult, setExtractionResult] =
+    useState<ExtractDocumentResponse | null>(null);
+  const [companyWarning, setCompanyWarning] = useState<{
+    rawName: string;
+  } | null>(null);
+  const [aiFilledFields, setAiFilledFields] = useState<Set<string>>(
+    new Set()
+  );
+  const [companyRefreshKey, setCompanyRefreshKey] = useState(0);
+
+  // --- Helpers for AI highlighting ---
+  function aiFieldClass(fieldId: string): string {
+    return aiFilledFields.has(fieldId)
+      ? "bg-[#FEF9E7] transition-colors duration-300"
+      : "";
+  }
+
+  function handleAiFocus(fieldId: string) {
+    setAiFilledFields((prev) => {
+      if (!prev.has(fieldId)) return prev;
+      const next = new Set(prev);
+      next.delete(fieldId);
+      return next;
+    });
+  }
+
+  // --- Line item management ---
   function updateLine(
     key: string,
     field: keyof ReceiptLineForm,
@@ -45,12 +78,98 @@ export default function ReceiptsPage() {
     setLines((prev) =>
       prev.map((l) => (l.key === key ? { ...l, [field]: value } : l))
     );
+    // Clear AI highlight for this field
+    setAiFilledFields((prev) => {
+      const id = `line:${key}:${field}`;
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
   }
 
   function removeLine(key: string) {
     setLines((prev) => prev.filter((l) => l.key !== key));
+    // Remove all AI highlights for this line
+    setAiFilledFields((prev) => {
+      const next = new Set(prev);
+      for (const id of prev) {
+        if (id.startsWith(`line:${key}:`)) next.delete(id);
+      }
+      return next.size !== prev.size ? next : prev;
+    });
   }
 
+  // --- AI extraction callback ---
+  function handleExtracted(result: ExtractDocumentResponse) {
+    setExtractionResult(result);
+    const newAiFields = new Set<string>();
+
+    // Company
+    if (result.company_match) {
+      setCompanyId(result.company_match.id);
+      newAiFields.add("company");
+      setCompanyWarning(null);
+    } else if (result.company_name_raw) {
+      setCompanyWarning({ rawName: result.company_name_raw });
+    }
+
+    // Date
+    if (result.date) {
+      setDate(result.date);
+      newAiFields.add("date");
+    }
+
+    // Line items
+    if (result.line_items.length > 0) {
+      const newLines: ReceiptLineForm[] = result.line_items.map((item) => {
+        const key = crypto.randomUUID();
+        if (item.item_number) newAiFields.add(`line:${key}:item_number`);
+        if (item.quantity_boxes)
+          newAiFields.add(`line:${key}:quantity_boxes`);
+        if (item.lot_number) newAiFields.add(`line:${key}:lot_number`);
+        if (item.expiration_date)
+          newAiFields.add(`line:${key}:expiration_date`);
+        return {
+          key,
+          item_number: item.item_number || "",
+          quantity_boxes: item.quantity_boxes
+            ? String(item.quantity_boxes)
+            : "",
+          lot_number: item.lot_number || "",
+          expiration_date: item.expiration_date || "",
+        };
+      });
+      setLines(newLines);
+    }
+
+    setAiFilledFields(newAiFields);
+  }
+
+  // --- Company match banner actions ---
+  async function handleAddCompany(name: string) {
+    const { data, error } = await supabase
+      .from("company")
+      .insert({ name: name.trim() })
+      .select()
+      .single();
+
+    if (error) {
+      setStatus({ type: "error", message: error.message });
+      return;
+    }
+
+    setCompanyId(data.id);
+    setCompanyRefreshKey((k) => k + 1);
+    setCompanyWarning(null);
+    setAiFilledFields((prev) => {
+      const next = new Set(prev);
+      next.add("company");
+      return next;
+    });
+  }
+
+  // --- Form submission (v1 logic, unchanged) ---
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!companyId) return;
@@ -98,6 +217,10 @@ export default function ReceiptsPage() {
       setCompanyId(null);
       setDate(todayISO());
       setLines([emptyLine()]);
+      // Reset AI state
+      setExtractionResult(null);
+      setCompanyWarning(null);
+      setAiFilledFields(new Set());
     }
     setSaving(false);
   }
@@ -116,9 +239,54 @@ export default function ReceiptsPage() {
         </div>
       )}
 
+      {/* Document upload widget */}
+      <div className="mb-4">
+        <DocumentUpload onExtracted={handleExtracted} disabled={saving} />
+      </div>
+
+      {/* AI field counter */}
+      {aiFilledFields.size > 0 && (
+        <div className="mb-4">
+          <AiFieldCounter count={aiFilledFields.size} />
+        </div>
+      )}
+
+      {/* Company match warning */}
+      {companyWarning && (
+        <div className="mb-4">
+          <CompanyMatchBanner
+            rawName={companyWarning.rawName}
+            onAddNew={handleAddCompany}
+            onPickDifferent={() => setCompanyWarning(null)}
+            onIgnore={() => setCompanyWarning(null)}
+          />
+        </div>
+      )}
+
+      {/* Confidence notes from AI */}
+      {extractionResult?.confidence_notes && (
+        <div className="mb-4 rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+          &#8505;&#65039; AI noted: {extractionResult.confidence_notes}
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <CompanySelect value={companyId} onChange={setCompanyId} />
+          <CompanySelect
+            value={companyId}
+            onChange={(id) => {
+              setCompanyId(id);
+              setAiFilledFields((prev) => {
+                if (!prev.has("company")) return prev;
+                const next = new Set(prev);
+                next.delete("company");
+                return next;
+              });
+              setCompanyWarning(null);
+            }}
+            refreshKey={companyRefreshKey}
+            className={aiFieldClass("company")}
+          />
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Date
@@ -126,8 +294,17 @@ export default function ReceiptsPage() {
             <input
               type="date"
               value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+              onChange={(e) => {
+                setDate(e.target.value);
+                setAiFilledFields((prev) => {
+                  if (!prev.has("date")) return prev;
+                  const next = new Set(prev);
+                  next.delete("date");
+                  return next;
+                });
+              }}
+              onFocus={() => handleAiFocus("date")}
+              className={`w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none ${aiFieldClass("date")}`}
             />
           </div>
         </div>
@@ -152,8 +329,11 @@ export default function ReceiptsPage() {
                     onChange={(e) =>
                       updateLine(line.key, "item_number", e.target.value)
                     }
+                    onFocus={() =>
+                      handleAiFocus(`line:${line.key}:item_number`)
+                    }
                     placeholder="Item #"
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                    className={`w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none ${aiFieldClass(`line:${line.key}:item_number`)}`}
                   />
                 </div>
                 <div>
@@ -167,9 +347,12 @@ export default function ReceiptsPage() {
                     onChange={(e) =>
                       updateLine(line.key, "quantity_boxes", e.target.value)
                     }
+                    onFocus={() =>
+                      handleAiFocus(`line:${line.key}:quantity_boxes`)
+                    }
                     placeholder="0"
                     min="1"
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                    className={`w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none ${aiFieldClass(`line:${line.key}:quantity_boxes`)}`}
                   />
                 </div>
                 <div>
@@ -182,8 +365,11 @@ export default function ReceiptsPage() {
                     onChange={(e) =>
                       updateLine(line.key, "lot_number", e.target.value)
                     }
+                    onFocus={() =>
+                      handleAiFocus(`line:${line.key}:lot_number`)
+                    }
                     placeholder="Lot #"
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                    className={`w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none ${aiFieldClass(`line:${line.key}:lot_number`)}`}
                   />
                 </div>
                 <div>
@@ -196,7 +382,10 @@ export default function ReceiptsPage() {
                     onChange={(e) =>
                       updateLine(line.key, "expiration_date", e.target.value)
                     }
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                    onFocus={() =>
+                      handleAiFocus(`line:${line.key}:expiration_date`)
+                    }
+                    className={`w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none ${aiFieldClass(`line:${line.key}:expiration_date`)}`}
                   />
                 </div>
                 <button
