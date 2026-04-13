@@ -125,7 +125,7 @@ export default function ReceiptsPage() {
       const newLines: ReceiptLineForm[] = result.line_items.map((item) => {
         const key = crypto.randomUUID();
         if (item.item_number) newAiFields.add(`line:${key}:item_number`);
-        if (item.quantity_boxes)
+        if (item.quantity_boxes !== 0)
           newAiFields.add(`line:${key}:quantity_boxes`);
         if (item.lot_number) newAiFields.add(`line:${key}:lot_number`);
         if (item.expiration_date)
@@ -133,9 +133,8 @@ export default function ReceiptsPage() {
         return {
           key,
           item_number: item.item_number || "",
-          quantity_boxes: item.quantity_boxes
-            ? String(item.quantity_boxes)
-            : "",
+          quantity_boxes:
+            item.quantity_boxes !== 0 ? String(item.quantity_boxes) : "",
           lot_number: item.lot_number || "",
           expiration_date: item.expiration_date || "",
         };

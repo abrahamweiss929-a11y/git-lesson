@@ -218,12 +218,15 @@ export async function POST(
     }
 
     // Map AI field names to form field names
-    const lineItems = parsed.line_items.map((item) => ({
-      item_number: String(item.item_number ?? ""),
-      quantity_boxes: Number(item.qty) || 0,
-      lot_number: String(item.lot_number ?? ""),
-      expiration_date: item.expiration ?? null,
-    }));
+    const lineItems = parsed.line_items.map((item) => {
+      const qty = Number(item.qty);
+      return {
+        item_number: String(item.item_number ?? ""),
+        quantity_boxes: Number.isFinite(qty) ? qty : 0,
+        lot_number: String(item.lot_number ?? ""),
+        expiration_date: item.expiration ?? null,
+      };
+    });
 
     // Fuzzy-match company
     let companyMatch: { id: number; name: string } | null = null;
