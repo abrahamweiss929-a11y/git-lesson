@@ -1,7 +1,12 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  turbopack: {
+    resolveAlias: {
+      // pdf.js tries to import canvas (not needed in browser)
+      canvas: "",
+    },
+  },
 };
 
 export default nextConfig;

@@ -1,13 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import type { ExtractDocumentResponse } from "@/lib/extract-document.types";
 import CompanySelect from "@/components/CompanySelect";
 import StatusMessage from "@/components/StatusMessage";
 import DocumentUpload from "@/components/DocumentUpload";
+import type { UploadedFileInfo } from "@/components/DocumentUpload";
 import CompanyMatchBanner from "@/components/CompanyMatchBanner";
 import AiFieldCounter from "@/components/AiFieldCounter";
+import VerificationLayout from "@/components/VerificationLayout";
 
 interface ReceiptLineForm {
   key: string;
@@ -52,6 +54,16 @@ export default function ReceiptsPage() {
     new Set()
   );
   const [companyRefreshKey, setCompanyRefreshKey] = useState(0);
+
+  // --- Document viewer state ---
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFileInfo[]>([]);
+
+  useEffect(() => {
+    return () => {
+      uploadedFiles.forEach((f) => URL.revokeObjectURL(f.objectUrl));
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // --- Helpers for AI highlighting ---
   function aiFieldClass(fieldId: string): string {
@@ -220,12 +232,14 @@ export default function ReceiptsPage() {
       setExtractionResult(null);
       setCompanyWarning(null);
       setAiFilledFields(new Set());
+      uploadedFiles.forEach((f) => URL.revokeObjectURL(f.objectUrl));
+      setUploadedFiles([]);
     }
     setSaving(false);
   }
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-8">
+    <VerificationLayout uploadedFiles={uploadedFiles}>
       <h1 className="text-xl font-bold mb-6">New Receipt</h1>
 
       {status && (
@@ -240,7 +254,7 @@ export default function ReceiptsPage() {
 
       {/* Document upload widget */}
       <div className="mb-4">
-        <DocumentUpload onExtracted={handleExtracted} disabled={saving} context="receipt" />
+        <DocumentUpload onExtracted={handleExtracted} onFilesReady={setUploadedFiles} disabled={saving} context="receipt" />
       </div>
 
       {/* AI field counter */}
@@ -415,6 +429,6 @@ export default function ReceiptsPage() {
           {saving ? "Saving..." : "Save Receipt"}
         </button>
       </form>
-    </div>
+    </VerificationLayout>
   );
 }
