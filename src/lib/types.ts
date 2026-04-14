@@ -62,3 +62,42 @@ export interface SupplierCode {
   their_item_number: string;
   created_at: string;
 }
+
+// v3 Item Master types
+
+export interface Item {
+  id: number;
+  item_code: string;
+  item_name: string | null;
+  manufacturer: string | null;
+  manufacturer_verified: boolean;
+  parts_per_box: number | null;
+  tests_per_box: number | null;
+  shelf_life_days: number | null;
+  test_type: string | null;
+  machine: string | null;
+  item_type: string | null;
+  category: string | null;
+  storage_requirements: string | null;
+  average_order_qty: number | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ItemSupplier {
+  id: number;
+  item_id: number;
+  company_id: number;
+  their_item_code: string | null;
+  price: number | null;
+  currency: string;
+  notes: string | null;
+  last_price_update: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ItemSupplierWithCompany extends ItemSupplier {
+  company: Pick<Company, "id" | "name">;
+}
