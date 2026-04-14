@@ -1,10 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import type { ItemMaster } from "@/lib/types";
 import CompanySelect from "@/components/CompanySelect";
 import StatusMessage from "@/components/StatusMessage";
+import BulkImportModal from "@/components/BulkImportModal";
+import { downloadItemTemplate } from "@/lib/generate-item-template";
+import {
+  parseItemSpreadsheet,
+  diffWithExisting,
+  type ImportDiff,
+} from "@/lib/parse-item-spreadsheet";
 
 interface SupplierCodeForm {
   key: string;
@@ -32,6 +39,11 @@ export default function ItemMasterPage() {
     message: string;
   } | null>(null);
   const [existingItems, setExistingItems] = useState<ItemMaster[]>([]);
+
+  // Bulk upload state
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [bulkDiff, setBulkDiff] = useState<ImportDiff | null>(null);
+  const [importing, setImporting] = useState(false);
 
   const fetchItems = useCallback(async () => {
     const { data } = await supabase
@@ -121,9 +133,136 @@ export default function ItemMasterPage() {
     setSaving(false);
   }
 
+  async function handleFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Reset so same file can be re-selected
+    if (fileInputRef.current) fileInputRef.current.value = "";
+
+    setStatus(null);
+
+    const result = await parseItemSpreadsheet(file);
+    if (!result.success) {
+      setStatus({ type: "error", message: result.error });
+      return;
+    }
+
+    const diff = diffWithExisting(result.rows, existingItems);
+    if (diff.toInsert.length === 0 && diff.toUpdate.length === 0) {
+      setStatus({ type: "error", message: "No items found in file." });
+      return;
+    }
+
+    setBulkDiff(diff);
+  }
+
+  async function handleConfirmImport() {
+    if (!bulkDiff) return;
+
+    setImporting(true);
+    setStatus(null);
+
+    try {
+      // Insert new items
+      if (bulkDiff.toInsert.length > 0) {
+        const { error } = await supabase.from("item_master").insert(
+          bulkDiff.toInsert.map((row) => ({
+            internal_name: row.internal_name,
+            parts_per_box: row.parts_per_box,
+            tests_per_box: row.tests_per_box,
+            default_shelf_life: row.default_shelf_life,
+          }))
+        );
+        if (error) {
+          setStatus({ type: "error", message: `Insert failed: ${error.message}` });
+          setImporting(false);
+          setBulkDiff(null);
+          fetchItems();
+          return;
+        }
+      }
+
+      // Update existing items
+      if (bulkDiff.toUpdate.length > 0) {
+        const updateResults = await Promise.all(
+          bulkDiff.toUpdate.map((row) =>
+            supabase
+              .from("item_master")
+              .update({
+                internal_name: row.internal_name,
+                parts_per_box: row.parts_per_box,
+                tests_per_box: row.tests_per_box,
+                default_shelf_life: row.default_shelf_life,
+              })
+              .eq("id", row.existingId)
+          )
+        );
+
+        const firstError = updateResults.find((r) => r.error);
+        if (firstError?.error) {
+          setStatus({
+            type: "error",
+            message: `Some updates failed: ${firstError.error.message}`,
+          });
+          setImporting(false);
+          setBulkDiff(null);
+          fetchItems();
+          return;
+        }
+      }
+
+      const added = bulkDiff.toInsert.length;
+      const updated = bulkDiff.toUpdate.length;
+      const parts = [];
+      if (added > 0) parts.push(`${added} item${added !== 1 ? "s" : ""} added`);
+      if (updated > 0) parts.push(`${updated} item${updated !== 1 ? "s" : ""} updated`);
+
+      setStatus({
+        type: "success",
+        message: `Import complete — ${parts.join(", ")}.`,
+      });
+      setBulkDiff(null);
+      fetchItems();
+    } catch (err) {
+      setStatus({
+        type: "error",
+        message: err instanceof Error ? err.message : "Import failed.",
+      });
+      setBulkDiff(null);
+      fetchItems();
+    } finally {
+      setImporting(false);
+    }
+  }
+
   return (
     <div className="max-w-2xl mx-auto px-4 py-8">
-      <h1 className="text-xl font-bold mb-6">Item Master</h1>
+      <h1 className="text-xl font-bold mb-4">Item Master</h1>
+
+      <div className="flex gap-3 mb-6">
+        <button
+          type="button"
+          onClick={downloadItemTemplate}
+          className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+        >
+          Download Template
+        </button>
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+        >
+          Upload Excel
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".xlsx,.xls,.csv"
+          className="hidden"
+          onChange={handleFileSelected}
+        />
+      </div>
 
       {status && (
         <div className="mb-4">
@@ -293,6 +432,15 @@ export default function ItemMasterPage() {
             </table>
           </div>
         </div>
+      )}
+
+      {bulkDiff && (
+        <BulkImportModal
+          diff={bulkDiff}
+          importing={importing}
+          onConfirm={handleConfirmImport}
+          onCancel={() => setBulkDiff(null)}
+        />
       )}
     </div>
   );
