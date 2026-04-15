@@ -1,0 +1,10 @@
+import { createClient } from "@supabase/supabase-js";
+
+// Server-side Supabase client with service_role key.
+// Used ONLY in API routes (never in client components).
+// The service_role key bypasses RLS and can call execute_readonly_sql.
+export const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  { auth: { persistSession: false } }
+);
