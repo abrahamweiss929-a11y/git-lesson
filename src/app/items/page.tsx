@@ -12,12 +12,24 @@ const PAGE_SIZE = 25;
 type SortColumn = "item_code" | "item_name" | "manufacturer" | "category";
 type SortDir = "asc" | "desc";
 
+function sanitizeSearch(raw: string): string {
+  return raw
+    .replace(/[,()]/g, "")
+    .replace(/\\/g, "\\\\")
+    .replace(/%/g, "\\%")
+    .replace(/_/g, "\\_");
+}
+
 export default function ItemsPage() {
   const router = useRouter();
 
   // Data
   const [items, setItems] = useState<Item[]>([]);
   const [totalCount, setTotalCount] = useState(0);
+
+  // Search
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
 
   // Pagination & sort
   const [currentPage, setCurrentPage] = useState(1);
@@ -32,15 +44,31 @@ export default function ItemsPage() {
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
+  // Debounce search input by 300ms
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedQuery(searchQuery);
+      setCurrentPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
   const fetchItems = useCallback(async () => {
     const from = (currentPage - 1) * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
 
-    const query = supabase
+    let query = supabase
       .from("item")
       .select("*", { count: "exact" })
       .order(sortColumn, { ascending: sortDirection === "asc" })
       .range(from, to);
+
+    if (debouncedQuery.trim()) {
+      const escaped = sanitizeSearch(debouncedQuery.trim());
+      query = query.or(
+        `item_code.ilike.%${escaped}%,item_name.ilike.%${escaped}%`
+      );
+    }
 
     const { data, count, error } = await query;
 
@@ -51,7 +79,7 @@ export default function ItemsPage() {
 
     setItems(data ?? []);
     setTotalCount(count ?? 0);
-  }, [currentPage, sortColumn, sortDirection]);
+  }, [currentPage, sortColumn, sortDirection, debouncedQuery]);
 
   useEffect(() => {
     fetchItems();
@@ -95,6 +123,17 @@ export default function ItemsPage() {
           />
         </div>
       )}
+
+      {/* Search */}
+      <div className="mb-4">
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search by item code or name..."
+          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+        />
+      </div>
 
       {/* Items table */}
       <div className="rounded-md border border-gray-200 bg-white overflow-hidden">
