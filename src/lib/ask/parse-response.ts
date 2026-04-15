@@ -108,7 +108,20 @@ export function parseStructuredResponse(
 
   console.log("[AI Ask] JSON parsed successfully, validating schema...");
 
-  const validated = AskResponsePayloadSchema.safeParse(parsed);
+  // DIAGNOSTIC: Wrap safeParse in try/catch to capture Zod internal crashes
+  let validated;
+  try {
+    validated = AskResponsePayloadSchema.safeParse(parsed);
+  } catch (e) {
+    console.error("[AI Ask] Zod CRASH (not validation failure):", e);
+    console.error("[AI Ask] Stack:", e instanceof Error ? e.stack : "no stack");
+    console.error("[AI Ask] Input keys:", Object.keys(parsed as Record<string, unknown>));
+    console.error("[AI Ask] Input JSON:", JSON.stringify(parsed, null, 2).slice(0, 1000));
+    throw new MalformedResponseError(
+      `Zod internal error: ${e instanceof Error ? e.message : String(e)}`
+    );
+  }
+
   if (!validated.success) {
     console.error(
       "[AI Ask] Zod validation failed:",
@@ -125,10 +138,13 @@ export function parseStructuredResponse(
 
   console.log("[AI Ask] Response validated successfully");
 
-  // Normalize column types (Zod accepts any string; we map to known types)
-  const data = validated.data;
-  if (data.table) {
-    data.table.columns = data.table.columns.map((col) => ({
+  // DIAGNOSTIC: With passthrough schema, manually extract and normalize fields
+  const raw = validated.data as Record<string, unknown>;
+  const table = raw.table as AskApiResponse["table"] | undefined;
+
+  // Normalize column types if table present
+  if (table?.columns) {
+    table.columns = table.columns.map((col) => ({
       ...col,
       type: normalizeColumnType(col.type),
     }));
@@ -141,7 +157,13 @@ export function parseStructuredResponse(
     : undefined;
 
   return {
-    ...data,
+    answer_text: String(raw.answer_text ?? ""),
+    result_type: String(raw.result_type ?? "narrative"),
+    table,
+    suggested_followups: Array.isArray(raw.suggested_followups)
+      ? (raw.suggested_followups as string[])
+      : [],
+    error: raw.error ? String(raw.error) : undefined,
     tools_used: toolsUsed,
     sql_used: sqlUsed,
   };

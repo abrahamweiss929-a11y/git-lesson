@@ -27,26 +27,25 @@ export type AskRequest = z.infer<typeof AskRequestSchema>;
 // Zod just validates the shape; we accept any string for type.
 export type ColumnType = "string" | "number" | "date" | "boolean" | "currency";
 
-const TableColumnSchema = z.object({
-  key: z.string(),
-  label: z.string(),
-  type: z.string(),
-});
-
-const TableSchema = z.object({
-  columns: z.array(TableColumnSchema),
-  rows: z.array(z.record(z.unknown())),
-});
-
+// DIAGNOSTIC: Minimal schema to isolate the Zod _zod crash.
+// If this works, the bug is in the nested table/column schemas.
+// If this still crashes, it's a fundamental Zod 4 issue.
 export const AskResponsePayloadSchema = z.object({
   answer_text: z.string(),
-  result_type: z.enum(["scalar", "table", "narrative", "error"]),
-  table: TableSchema.optional(),
-  suggested_followups: z.array(z.string()).optional().default([]),
-  error: z.string().optional(),
-});
+  result_type: z.string(),
+}).passthrough();
 
-export type AskResponsePayload = z.infer<typeof AskResponsePayloadSchema>;
+// DIAGNOSTIC: Full type defined manually since schema is minimal for now
+export interface AskResponsePayload {
+  answer_text: string;
+  result_type: string;
+  table?: {
+    columns: Array<{ key: string; label: string; type: string }>;
+    rows: Array<Record<string, unknown>>;
+  };
+  suggested_followups?: string[];
+  error?: string;
+}
 
 // --- Full API response (includes tool tracking) ---
 
