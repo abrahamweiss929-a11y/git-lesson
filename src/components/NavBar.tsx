@@ -9,6 +9,7 @@ const links = [
   { href: "/receipts", label: "Receipts" },
   { href: "/usage", label: "Usage" },
   { href: "/items", label: "Item Master" },
+  { href: "/ask", label: "Ask" },
 ];
 
 export default function NavBar() {
