@@ -28,13 +28,9 @@ const BLOCKED_TABLES = new Set([
 const BLOCKED_KEYWORDS_RE =
   /\b(INSERT|UPDATE|DELETE|DROP|TRUNCATE|ALTER|CREATE|GRANT|REVOKE|COPY|EXECUTE|CALL|DO\s+\$|VACUUM|ANALYZE|REINDEX|LISTEN|NOTIFY|LOCK)\b/i;
 
-export interface SqlValidationResult {
-  ok: true;
-  sanitizedSql: string;
-} | {
-  ok: false;
-  reason: string;
-}
+export type SqlValidationResult =
+  | { ok: true; sanitizedSql: string }
+  | { ok: false; reason: string };
 
 /**
  * Recursively collect all table references from an AST node.
