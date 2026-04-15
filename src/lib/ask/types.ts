@@ -23,25 +23,14 @@ export type AskRequest = z.infer<typeof AskRequestSchema>;
 
 // --- Response schema (what Claude must produce in its JSON block) ---
 
-// Accept any string for column type — the AI might use "text", "integer", etc.
-// We normalize to our known types in the frontend; unknown types render as string.
-const KNOWN_COLUMN_TYPES = ["string", "number", "date", "boolean", "currency"] as const;
-type ColumnType = typeof KNOWN_COLUMN_TYPES[number];
+// Column type normalization happens AFTER Zod parsing — see parse-response.ts.
+// Zod just validates the shape; we accept any string for type.
+export type ColumnType = "string" | "number" | "date" | "boolean" | "currency";
 
 const TableColumnSchema = z.object({
   key: z.string(),
   label: z.string(),
-  type: z.string().transform((t): ColumnType => {
-    const lower = t.toLowerCase();
-    if (KNOWN_COLUMN_TYPES.includes(lower as ColumnType)) return lower as ColumnType;
-    // Map common alternatives
-    if (["text", "varchar"].includes(lower)) return "string";
-    if (["integer", "int", "float", "decimal", "numeric", "bigint"].includes(lower)) return "number";
-    if (["timestamp", "timestamptz", "datetime"].includes(lower)) return "date";
-    if (["bool"].includes(lower)) return "boolean";
-    if (["money", "price"].includes(lower)) return "currency";
-    return "string"; // fallback
-  }),
+  type: z.string(),
 });
 
 const TableSchema = z.object({

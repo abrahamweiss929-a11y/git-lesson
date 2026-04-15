@@ -1,5 +1,23 @@
-import { AskResponsePayloadSchema, type AskApiResponse } from "./types";
+import {
+  AskResponsePayloadSchema,
+  type AskApiResponse,
+  type ColumnType,
+} from "./types";
 import type { ToolUseRecord } from "@/lib/ai-tools/types";
+
+/** Normalize AI-provided column type to our known set. */
+function normalizeColumnType(raw: string): ColumnType {
+  const t = raw.toLowerCase();
+  if (["string", "number", "date", "boolean", "currency"].includes(t))
+    return t as ColumnType;
+  if (["text", "varchar"].includes(t)) return "string";
+  if (["integer", "int", "float", "decimal", "numeric", "bigint"].includes(t))
+    return "number";
+  if (["timestamp", "timestamptz", "datetime"].includes(t)) return "date";
+  if (t === "bool") return "boolean";
+  if (["money", "price"].includes(t)) return "currency";
+  return "string";
+}
 
 /**
  * Parse Claude's final text response into a structured AskApiResponse.
@@ -107,6 +125,15 @@ export function parseStructuredResponse(
 
   console.log("[AI Ask] Response validated successfully");
 
+  // Normalize column types (Zod accepts any string; we map to known types)
+  const data = validated.data;
+  if (data.table) {
+    data.table.columns = data.table.columns.map((col) => ({
+      ...col,
+      type: normalizeColumnType(col.type),
+    }));
+  }
+
   // Find SQL used (if any)
   const sqlTool = toolsUsed.find((t) => t.name === "run_sql_query");
   const sqlUsed = sqlTool?.input?.sql
@@ -114,7 +141,7 @@ export function parseStructuredResponse(
     : undefined;
 
   return {
-    ...validated.data,
+    ...data,
     tools_used: toolsUsed,
     sql_used: sqlUsed,
   };
