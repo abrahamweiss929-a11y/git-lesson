@@ -135,20 +135,31 @@ export async function POST(
           .map((b) => b.text)
           .join("\n");
 
+        console.log(
+          `[AI Ask] end_turn at iteration ${iterations}. Content blocks: ${response.content.map((b) => b.type).join(", ")}`
+        );
+
         try {
           const result = parseStructuredResponse(fullText, toolsUsedTracker);
           return NextResponse.json(result);
         } catch (e) {
+          const errMsg =
+            e instanceof Error ? e.message : String(e);
+          console.error(
+            `[AI Ask] Parse failed (attempt ${iterations}): ${errMsg}`
+          );
+
           if (
             e instanceof MalformedResponseError &&
             iterations < MAX_ITERATIONS
           ) {
             // Retry once with corrective prompt
+            console.log("[AI Ask] Sending corrective prompt for retry...");
             messages.push({ role: "assistant", content: response.content });
             messages.push({
               role: "user",
               content:
-                "Your response was missing or had a malformed JSON block. Please re-output your answer with a valid ```json``` block matching the schema: { answer_text, result_type, table? (with columns and rows), suggested_followups }",
+                'Your response was missing or had a malformed JSON block. Please re-output your answer ending with a ```json``` code block containing a JSON object with these exact fields: {"answer_text": "...", "result_type": "scalar|table|narrative|error", "table": {"columns": [{"key": "...", "label": "...", "type": "string|number|date|currency"}], "rows": [...]}, "suggested_followups": ["...", "..."]}. The table field is optional. Make sure the JSON is valid.',
             });
             continue;
           }
@@ -159,7 +170,7 @@ export async function POST(
             result_type: "error" as const,
             tools_used: toolsUsedTracker,
             suggested_followups: [],
-            error: "AI response was malformed.",
+            error: `AI response was malformed: ${errMsg}`,
           });
         }
       }
