@@ -4,9 +4,17 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import type { Item } from "@/lib/types";
+import { useRef } from "react";
 import StatusMessage from "@/components/StatusMessage";
 import Pagination from "@/components/Pagination";
 import CollapsibleSection from "@/components/CollapsibleSection";
+import BulkImportModal from "@/components/BulkImportModal";
+import { downloadItemTemplate } from "@/lib/generate-item-template";
+import {
+  parseItemSpreadsheet,
+  diffWithExisting,
+  type ImportDiff,
+} from "@/lib/parse-item-spreadsheet";
 
 const PAGE_SIZE = 25;
 
@@ -55,6 +63,11 @@ export default function ItemsPage() {
     notes: "",
   });
   const [saving, setSaving] = useState(false);
+
+  // Items bulk upload
+  const itemFileInputRef = useRef<HTMLInputElement>(null);
+  const [itemBulkDiff, setItemBulkDiff] = useState<ImportDiff | null>(null);
+  const [itemImporting, setItemImporting] = useState(false);
 
   // Status
   const [status, setStatus] = useState<{
@@ -167,6 +180,117 @@ export default function ItemsPage() {
     setSaving(false);
   }
 
+  /* ---- Items bulk upload handlers ---- */
+  async function handleItemFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (itemFileInputRef.current) itemFileInputRef.current.value = "";
+    setStatus(null);
+
+    const result = await parseItemSpreadsheet(file);
+    if (!result.success) {
+      setStatus({ type: "error", message: result.error });
+      return;
+    }
+
+    // Fetch all items for diffing
+    const { data: allItems } = await supabase
+      .from("item")
+      .select("id, item_code");
+    const diff = diffWithExisting(result.rows, allItems ?? []);
+    if (diff.toInsert.length === 0 && diff.toUpdate.length === 0) {
+      setStatus({ type: "error", message: "No new or updated items found in file." });
+      return;
+    }
+    setItemBulkDiff(diff);
+  }
+
+  async function handleConfirmItemImport() {
+    if (!itemBulkDiff) return;
+    setItemImporting(true);
+    setStatus(null);
+
+    try {
+      if (itemBulkDiff.toInsert.length > 0) {
+        const { error } = await supabase.from("item").insert(
+          itemBulkDiff.toInsert.map((row) => ({
+            item_code: row.item_code,
+            item_name: row.item_name,
+            manufacturer: row.manufacturer,
+            manufacturer_verified: row.manufacturer_verified,
+            parts_per_box: row.parts_per_box,
+            tests_per_box: row.tests_per_box,
+            shelf_life_days: row.shelf_life_days,
+            test_type: row.test_type,
+            machine: row.machine,
+            item_type: row.item_type,
+            category: row.category,
+            storage_requirements: row.storage_requirements,
+            average_order_qty: row.average_order_qty,
+            notes: row.notes,
+          }))
+        );
+        if (error) {
+          setStatus({ type: "error", message: `Insert failed: ${error.message}` });
+          setItemImporting(false);
+          setItemBulkDiff(null);
+          fetchItems();
+          return;
+        }
+      }
+
+      if (itemBulkDiff.toUpdate.length > 0) {
+        const updateResults = await Promise.all(
+          itemBulkDiff.toUpdate.map((row) =>
+            supabase
+              .from("item")
+              .update({
+                item_code: row.item_code,
+                item_name: row.item_name,
+                manufacturer: row.manufacturer,
+                manufacturer_verified: row.manufacturer_verified,
+                parts_per_box: row.parts_per_box,
+                tests_per_box: row.tests_per_box,
+                shelf_life_days: row.shelf_life_days,
+                test_type: row.test_type,
+                machine: row.machine,
+                item_type: row.item_type,
+                category: row.category,
+                storage_requirements: row.storage_requirements,
+                average_order_qty: row.average_order_qty,
+                notes: row.notes,
+              })
+              .eq("id", row.existingId)
+          )
+        );
+
+        const firstError = updateResults.find((r) => r.error);
+        if (firstError?.error) {
+          setStatus({ type: "error", message: `Some updates failed: ${firstError.error.message}` });
+          setItemImporting(false);
+          setItemBulkDiff(null);
+          fetchItems();
+          return;
+        }
+      }
+
+      const added = itemBulkDiff.toInsert.length;
+      const updated = itemBulkDiff.toUpdate.length;
+      const parts = [];
+      if (added > 0) parts.push(`${added} item${added !== 1 ? "s" : ""} added`);
+      if (updated > 0) parts.push(`${updated} item${updated !== 1 ? "s" : ""} updated`);
+      setStatus({ type: "success", message: `Import complete — ${parts.join(", ")}.` });
+      setItemBulkDiff(null);
+      fetchItems();
+    } catch (err) {
+      setStatus({ type: "error", message: err instanceof Error ? err.message : "Import failed." });
+      setItemBulkDiff(null);
+      fetchItems();
+    } finally {
+      setItemImporting(false);
+    }
+  }
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
       {/* Header */}
@@ -265,7 +389,43 @@ export default function ItemsPage() {
             </button>
           </form>
         </CollapsibleSection>
+
+        <CollapsibleSection title="Bulk upload items (Excel)">
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={downloadItemTemplate}
+              className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              Download Template
+            </button>
+            <button
+              type="button"
+              onClick={() => itemFileInputRef.current?.click()}
+              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            >
+              Upload Items
+            </button>
+            <input
+              ref={itemFileInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+              onChange={handleItemFileSelected}
+            />
+          </div>
+        </CollapsibleSection>
       </div>
+
+      {/* Items bulk import modal */}
+      {itemBulkDiff && (
+        <BulkImportModal
+          diff={itemBulkDiff}
+          importing={itemImporting}
+          onConfirm={handleConfirmItemImport}
+          onCancel={() => setItemBulkDiff(null)}
+        />
+      )}
 
       {/* Items table */}
       <div className="rounded-md border border-gray-200 bg-white overflow-hidden">
