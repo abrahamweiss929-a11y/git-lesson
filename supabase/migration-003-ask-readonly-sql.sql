@@ -43,6 +43,8 @@ REVOKE ALL ON FUNCTION execute_readonly_sql(TEXT) FROM PUBLIC;
 REVOKE ALL ON FUNCTION execute_readonly_sql(TEXT) FROM anon, authenticated;
 GRANT EXECUTE ON FUNCTION execute_readonly_sql(TEXT) TO service_role;
 
-RAISE NOTICE 'migration-003: execute_readonly_sql function created, granted to service_role only';
+DO $$ BEGIN
+  RAISE NOTICE 'migration-003: execute_readonly_sql function created, granted to service_role only';
+END $$;
 
 COMMIT;
