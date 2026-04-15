@@ -9,12 +9,19 @@ import StatusMessage from "@/components/StatusMessage";
 import Pagination from "@/components/Pagination";
 import CollapsibleSection from "@/components/CollapsibleSection";
 import BulkImportModal from "@/components/BulkImportModal";
-import { downloadItemTemplate } from "@/lib/generate-item-template";
+import MissingReferencesModal from "@/components/MissingReferencesModal";
+import { downloadItemTemplate, downloadSupplierTemplate } from "@/lib/generate-item-template";
 import {
   parseItemSpreadsheet,
   diffWithExisting,
   type ImportDiff,
 } from "@/lib/parse-item-spreadsheet";
+import {
+  parseSupplierSpreadsheet,
+  analyzeSupplierImport,
+  type ParsedSupplierRow,
+  type SupplierImportAnalysis,
+} from "@/lib/parse-supplier-spreadsheet";
 
 const PAGE_SIZE = 25;
 
@@ -68,6 +75,13 @@ export default function ItemsPage() {
   const itemFileInputRef = useRef<HTMLInputElement>(null);
   const [itemBulkDiff, setItemBulkDiff] = useState<ImportDiff | null>(null);
   const [itemImporting, setItemImporting] = useState(false);
+
+  // Supplier bulk upload
+  const supplierFileInputRef = useRef<HTMLInputElement>(null);
+  const [supplierRows, setSupplierRows] = useState<ParsedSupplierRow[] | null>(null);
+  const [supplierAnalysis, setSupplierAnalysis] = useState<SupplierImportAnalysis | null>(null);
+  const [supplierImporting, setSupplierImporting] = useState(false);
+  const [showMissingRefs, setShowMissingRefs] = useState(false);
 
   // Status
   const [status, setStatus] = useState<{
@@ -291,6 +305,149 @@ export default function ItemsPage() {
     }
   }
 
+  /* ---- Supplier bulk upload handlers ---- */
+  async function handleSupplierFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (supplierFileInputRef.current) supplierFileInputRef.current.value = "";
+    setStatus(null);
+
+    const result = await parseSupplierSpreadsheet(file);
+    if (!result.success) {
+      setStatus({ type: "error", message: result.error });
+      return;
+    }
+
+    // Fetch items and companies for cross-reference
+    const [{ data: allItems }, { data: allCompanies }] = await Promise.all([
+      supabase.from("item").select("id, item_code"),
+      supabase.from("company").select("id, name"),
+    ]);
+
+    const analysis = analyzeSupplierImport(
+      result.rows,
+      allItems ?? [],
+      allCompanies ?? []
+    );
+
+    setSupplierRows(result.rows);
+    setSupplierAnalysis(analysis);
+
+    if (analysis.missingItemCodes.length > 0 || analysis.missingCompanies.length > 0) {
+      setShowMissingRefs(true);
+    } else {
+      // All references found — proceed directly
+      await executeSupplierImport(analysis.readyToImport);
+    }
+  }
+
+  async function executeSupplierImport(
+    rows: SupplierImportAnalysis["readyToImport"]
+  ) {
+    if (rows.length === 0) {
+      setStatus({ type: "error", message: "No valid supplier rows to import." });
+      return;
+    }
+
+    setSupplierImporting(true);
+    setStatus(null);
+
+    try {
+      const { error } = await supabase.from("item_supplier").upsert(
+        rows.map((row) => ({
+          item_id: row.item_id,
+          company_id: row.company_id,
+          their_item_code: row.their_item_code,
+          price: row.price,
+          currency: row.currency || "USD",
+          notes: row.notes,
+          last_price_update: row.price != null ? new Date().toISOString() : null,
+        })),
+        { onConflict: "item_id,company_id" }
+      );
+
+      if (error) {
+        setStatus({ type: "error", message: `Supplier import failed: ${error.message}` });
+      } else {
+        setStatus({
+          type: "success",
+          message: `Supplier import complete — ${rows.length} record${rows.length !== 1 ? "s" : ""} imported.`,
+        });
+      }
+    } catch (err) {
+      setStatus({
+        type: "error",
+        message: err instanceof Error ? err.message : "Supplier import failed.",
+      });
+    } finally {
+      setSupplierImporting(false);
+      setShowMissingRefs(false);
+      setSupplierRows(null);
+      setSupplierAnalysis(null);
+    }
+  }
+
+  async function handleSkipMissing() {
+    if (!supplierAnalysis) return;
+    await executeSupplierImport(supplierAnalysis.readyToImport);
+  }
+
+  async function handleCreateAndImport() {
+    if (!supplierRows || !supplierAnalysis) return;
+    setSupplierImporting(true);
+    setStatus(null);
+
+    try {
+      // Create missing companies
+      if (supplierAnalysis.missingCompanies.length > 0) {
+        const { error } = await supabase
+          .from("company")
+          .insert(supplierAnalysis.missingCompanies.map((name) => ({ name })));
+        if (error) {
+          setStatus({ type: "error", message: `Failed to create companies: ${error.message}` });
+          setSupplierImporting(false);
+          return;
+        }
+      }
+
+      // Create missing items (just item_code, everything else null)
+      if (supplierAnalysis.missingItemCodes.length > 0) {
+        const { error } = await supabase
+          .from("item")
+          .insert(supplierAnalysis.missingItemCodes.map((code) => ({ item_code: code })));
+        if (error) {
+          setStatus({ type: "error", message: `Failed to create items: ${error.message}` });
+          setSupplierImporting(false);
+          return;
+        }
+      }
+
+      // Re-fetch items and companies, re-analyze
+      const [{ data: allItems }, { data: allCompanies }] = await Promise.all([
+        supabase.from("item").select("id, item_code"),
+        supabase.from("company").select("id, name"),
+      ]);
+
+      const newAnalysis = analyzeSupplierImport(
+        supplierRows,
+        allItems ?? [],
+        allCompanies ?? []
+      );
+
+      await executeSupplierImport(newAnalysis.readyToImport);
+      fetchItems(); // refresh the items table since we may have created new items
+    } catch (err) {
+      setStatus({
+        type: "error",
+        message: err instanceof Error ? err.message : "Import failed.",
+      });
+      setSupplierImporting(false);
+      setShowMissingRefs(false);
+      setSupplierRows(null);
+      setSupplierAnalysis(null);
+    }
+  }
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
       {/* Header */}
@@ -415,6 +572,32 @@ export default function ItemsPage() {
             />
           </div>
         </CollapsibleSection>
+
+        <CollapsibleSection title="Bulk upload supplier info (Excel)">
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={downloadSupplierTemplate}
+              className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              Download Supplier Template
+            </button>
+            <button
+              type="button"
+              onClick={() => supplierFileInputRef.current?.click()}
+              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            >
+              Upload Suppliers
+            </button>
+            <input
+              ref={supplierFileInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+              onChange={handleSupplierFileSelected}
+            />
+          </div>
+        </CollapsibleSection>
       </div>
 
       {/* Items bulk import modal */}
@@ -486,6 +669,22 @@ export default function ItemsPage() {
         pageSize={PAGE_SIZE}
         onPageChange={handlePageChange}
       />
+
+      {/* Missing references modal for supplier upload */}
+      {showMissingRefs && supplierAnalysis && (
+        <MissingReferencesModal
+          missingItemCodes={supplierAnalysis.missingItemCodes}
+          missingCompanies={supplierAnalysis.missingCompanies}
+          importing={supplierImporting}
+          onSkipMissing={handleSkipMissing}
+          onCreateAndImport={handleCreateAndImport}
+          onCancel={() => {
+            setShowMissingRefs(false);
+            setSupplierRows(null);
+            setSupplierAnalysis(null);
+          }}
+        />
+      )}
     </div>
   );
 }
