@@ -23,6 +23,9 @@ export interface ExtractDocumentResponse {
   line_items: ExtractedLineItem[];
   confidence_notes: string;
   document_type: string;
+  source_document_id?: number; // v5: ID of the saved file in source_document table
+  extraction_failed?: boolean; // v5: true if file saved but AI extraction failed
+  error_message?: string; // v5: human-readable extraction failure reason
 }
 
 // Error API response
