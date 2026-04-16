@@ -54,7 +54,7 @@ export async function POST(
   const parseResult = AskRequestSchema.safeParse(body);
   if (!parseResult.success) {
     return NextResponse.json(
-      { error: parseResult.error.errors[0]?.message ?? "Invalid request." },
+      { error: parseResult.error.issues[0]?.message ?? "Invalid request." },
       { status: 400 }
     );
   }
