@@ -257,9 +257,9 @@ export async function parseItemSpreadsheet(
 
 export function diffWithExisting(
   rows: ParsedItemRow[],
-  existingItems: Item[]
+  existingItems: Pick<Item, "id" | "item_code">[]
 ): ImportDiff {
-  const existingMap = new Map<string, Item>();
+  const existingMap = new Map<string, Pick<Item, "id" | "item_code">>();
   for (const item of existingItems) {
     existingMap.set(item.item_code.toLowerCase().trim(), item);
   }

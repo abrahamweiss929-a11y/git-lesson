@@ -64,13 +64,20 @@ registerTool(
       return { ok: false, error: { code: "DB_ERROR", message: supErr.message } };
     }
 
-    const rows = (suppliers ?? []).map((s) => ({
-      supplier_name: (s.company as { name: string }).name,
-      their_item_code: s.their_item_code,
-      price: s.price,
-      currency: s.currency,
-      last_price_update: s.last_price_update,
-    }));
+    const rows = (suppliers ?? []).map((s) => {
+      // Supabase types the joined relation as an array; FK points to one row.
+      const c = s.company as unknown as { name: string } | { name: string }[] | null;
+      const supplierName = Array.isArray(c)
+        ? (c[0]?.name ?? "")
+        : (c?.name ?? "");
+      return {
+        supplier_name: supplierName,
+        their_item_code: s.their_item_code,
+        price: s.price,
+        currency: s.currency,
+        last_price_update: s.last_price_update,
+      };
+    });
 
     return {
       ok: true,

@@ -64,13 +64,17 @@ registerTool(
       }
 
       const { data } = await q;
+      // Supabase types joined relations as arrays; FKs resolve to single rows at runtime.
+      type ReceiptShape = { id: number; date: string; company: { name: string } | { name: string }[] };
       for (const line of data ?? []) {
-        const r = line.receipt as { id: number; date: string; company: { name: string } } | null;
+        const raw = line.receipt as unknown as ReceiptShape | ReceiptShape[] | null;
+        const r = Array.isArray(raw) ? raw[0] : raw;
         if (!r) continue;
+        const company = Array.isArray(r.company) ? r.company[0] : r.company;
         results.push({
           type: "receipt",
           date: r.date,
-          supplier: r.company.name,
+          supplier: company?.name ?? "Unknown",
           item_number: line.item_number,
           quantity_boxes: line.quantity_boxes,
           lot_number: line.lot_number,
@@ -94,13 +98,17 @@ registerTool(
       }
 
       const { data } = await q;
+      // Supabase types joined relations as arrays; FKs resolve to single rows at runtime.
+      type POShape = { id: number; date: string; company: { name: string } | { name: string }[] };
       for (const line of data ?? []) {
-        const po = line.purchase_order as { id: number; date: string; company: { name: string } } | null;
+        const raw = line.purchase_order as unknown as POShape | POShape[] | null;
+        const po = Array.isArray(raw) ? raw[0] : raw;
         if (!po) continue;
+        const company = Array.isArray(po.company) ? po.company[0] : po.company;
         results.push({
           type: "order",
           date: po.date,
-          supplier: po.company.name,
+          supplier: company?.name ?? "Unknown",
           item_number: line.item_number,
           quantity_boxes: line.quantity_boxes,
           unit_price: line.price,

@@ -56,18 +56,19 @@ registerTool(
       return { ok: false, error: { code: "DB_ERROR", message: error.message } };
     }
 
-    // Flatten the joined data and apply date filters
+    // Flatten the joined data and apply date filters.
+    // Supabase types joined relations as arrays; FKs resolve to single rows at runtime.
+    type POShape = { id: number; date: string; company: { id: number; name: string } | { id: number; name: string }[] };
     const rows = (data ?? [])
       .map((line) => {
-        const po = line.purchase_order as {
-          id: number;
-          date: string;
-          company: { id: number; name: string };
-        };
+        const raw = line.purchase_order as unknown as POShape | POShape[] | null;
+        const po = Array.isArray(raw) ? raw[0] : raw;
+        if (!po) return null;
+        const company = Array.isArray(po.company) ? po.company[0] : po.company;
         return {
           order_id: po.id,
           order_date: po.date,
-          supplier: po.company.name,
+          supplier: company?.name ?? "Unknown",
           item_number: line.item_number,
           quantity_boxes: line.quantity_boxes,
           unit_price: line.price,
@@ -77,6 +78,7 @@ registerTool(
               : null,
         };
       })
+      .filter((row): row is NonNullable<typeof row> => row !== null)
       .filter((row) => {
         if (input.since_date && row.order_date < String(input.since_date))
           return false;

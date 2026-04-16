@@ -95,7 +95,7 @@ export function validateSql(sql: string): SqlValidationResult {
     return { ok: false, reason: "Only one statement allowed (no semicolons)." };
   }
 
-  const stmt = statements[0] as Record<string, unknown>;
+  const stmt = statements[0] as unknown as Record<string, unknown>;
 
   // Must be a SELECT
   if (stmt.type !== "select") {
@@ -162,7 +162,7 @@ export function validateSql(sql: string): SqlValidationResult {
     }
 
     // Re-emit the SQL from the modified AST
-    const sanitizedSql = parser.sqlify(statements.length === 1 ? stmt : statements, {
+    const sanitizedSql = parser.sqlify((statements.length === 1 ? stmt : statements) as unknown as Parameters<typeof parser.sqlify>[0], {
       database: "postgresql",
     });
 

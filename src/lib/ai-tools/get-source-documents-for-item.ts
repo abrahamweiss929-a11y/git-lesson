@@ -72,15 +72,14 @@ registerTool(
         )
         .in("receipt_id", receiptIds);
 
+      // Supabase types joined relations as arrays; FKs resolve to single rows at runtime.
+      type DocShape = { id: number; original_filename: string; uploaded_at: string; mime_type: string; context: string };
+      type ReceiptShape = { id: number; date: string };
       for (const row of receiptDocs ?? []) {
-        const doc = row.source_document as {
-          id: number;
-          original_filename: string;
-          uploaded_at: string;
-          mime_type: string;
-          context: string;
-        };
-        const receipt = row.receipt as { id: number; date: string };
+        const rawDoc = row.source_document as unknown as DocShape | DocShape[] | null;
+        const doc = Array.isArray(rawDoc) ? rawDoc[0] : rawDoc;
+        const rawReceipt = row.receipt as unknown as ReceiptShape | ReceiptShape[] | null;
+        const receipt = Array.isArray(rawReceipt) ? rawReceipt[0] : rawReceipt;
         if (doc && receipt) {
           results.push({
             source_document_id: doc.id,
@@ -103,15 +102,13 @@ registerTool(
         )
         .in("purchase_order_id", orderIds);
 
+      type OrderDocShape = { id: number; original_filename: string; uploaded_at: string; mime_type: string; context: string };
+      type OrderShape = { id: number; date: string };
       for (const row of orderDocs ?? []) {
-        const doc = row.source_document as {
-          id: number;
-          original_filename: string;
-          uploaded_at: string;
-          mime_type: string;
-          context: string;
-        };
-        const order = row.purchase_order as { id: number; date: string };
+        const rawDoc = row.source_document as unknown as OrderDocShape | OrderDocShape[] | null;
+        const doc = Array.isArray(rawDoc) ? rawDoc[0] : rawDoc;
+        const rawOrder = row.purchase_order as unknown as OrderShape | OrderShape[] | null;
+        const order = Array.isArray(rawOrder) ? rawOrder[0] : rawOrder;
         if (doc && order) {
           results.push({
             source_document_id: doc.id,

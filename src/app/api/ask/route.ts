@@ -225,13 +225,13 @@ export async function POST(
  */
 async function callWithRetry(
   client: Anthropic,
-  params: Anthropic.MessageCreateParams,
+  params: Anthropic.MessageCreateParamsNonStreaming,
   maxRetries = 2
 ): Promise<Anthropic.Message> {
   let lastError: Error | undefined;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      return await client.messages.create(params);
+      return (await client.messages.create(params)) as Anthropic.Message;
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
 

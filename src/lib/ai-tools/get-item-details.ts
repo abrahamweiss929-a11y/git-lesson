@@ -74,17 +74,23 @@ registerTool(
       };
     }
 
+    // Supabase types the joined company as an array; FK resolves to one row.
+    type CompanyShape = { id: number; name: string };
     const result = {
       ...item,
-      suppliers: (suppliers ?? []).map((s) => ({
-        supplier_id: (s.company as { id: number; name: string }).id,
-        supplier_name: (s.company as { id: number; name: string }).name,
-        their_item_code: s.their_item_code,
-        price: s.price,
-        currency: s.currency,
-        last_price_update: s.last_price_update,
-        notes: s.notes,
-      })),
+      suppliers: (suppliers ?? []).map((s) => {
+        const raw = s.company as unknown as CompanyShape | CompanyShape[] | null;
+        const c = Array.isArray(raw) ? raw[0] : raw;
+        return {
+          supplier_id: c?.id ?? 0,
+          supplier_name: c?.name ?? "Unknown",
+          their_item_code: s.their_item_code,
+          price: s.price,
+          currency: s.currency,
+          last_price_update: s.last_price_update,
+          notes: s.notes,
+        };
+      }),
     };
 
     return {

@@ -124,13 +124,19 @@ export default function OrdersPage() {
     });
 
     const rows: RecentOrder[] = orders.map(
-      (o: { id: number; date: string; company: { name: string } | null }) => ({
-        id: o.id,
-        date: o.date,
-        company_name: o.company?.name ?? "Unknown",
-        line_count: lineMap.get(o.id) ?? 0,
-        file_count: fileMap.get(o.id) ?? 0,
-      })
+      (o: { id: number; date: string; company: { name: string } | { name: string }[] | null }) => {
+        // Supabase types the joined relation as an array; FK points to a single row.
+        const companyName = Array.isArray(o.company)
+          ? (o.company[0]?.name ?? "Unknown")
+          : (o.company?.name ?? "Unknown");
+        return {
+          id: o.id,
+          date: o.date,
+          company_name: companyName,
+          line_count: lineMap.get(o.id) ?? 0,
+          file_count: fileMap.get(o.id) ?? 0,
+        };
+      }
     );
 
     setRecentOrders(rows);

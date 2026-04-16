@@ -40,7 +40,11 @@ export interface AskResponsePayload {
   answer_text: string;
   result_type: string;
   table?: {
-    columns: Array<{ key: string; label: string; type: string }>;
+    columns: Array<{
+      key: string;
+      label: string;
+      type: "string" | "number" | "boolean" | "date" | "currency";
+    }>;
     rows: Array<Record<string, unknown>>;
   };
   suggested_followups?: string[];

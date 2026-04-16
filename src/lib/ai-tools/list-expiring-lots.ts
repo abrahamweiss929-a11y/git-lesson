@@ -42,23 +42,30 @@ registerTool(
       return { ok: false, error: { code: "DB_ERROR", message: error.message } };
     }
 
-    const rows = (data ?? []).map((line) => {
-      const r = line.receipt as { date: string; company: { name: string } };
-      const expDate = new Date(line.expiration_date);
-      const todayDate = new Date(today);
-      const daysLeft = Math.ceil(
-        (expDate.getTime() - todayDate.getTime()) / (1000 * 60 * 60 * 24)
-      );
-      return {
-        item_number: line.item_number,
-        lot_number: line.lot_number,
-        expiration_date: line.expiration_date,
-        days_until_expiry: daysLeft,
-        quantity_boxes: line.quantity_boxes,
-        supplier: r.company.name,
-        received_date: r.date,
-      };
-    });
+    // Supabase types joined relations as arrays; FKs resolve to single rows at runtime.
+    type ReceiptShape = { date: string; company: { name: string } | { name: string }[] };
+    const rows = (data ?? [])
+      .map((line) => {
+        const raw = line.receipt as unknown as ReceiptShape | ReceiptShape[] | null;
+        const r = Array.isArray(raw) ? raw[0] : raw;
+        if (!r) return null;
+        const company = Array.isArray(r.company) ? r.company[0] : r.company;
+        const expDate = new Date(line.expiration_date);
+        const todayDate = new Date(today);
+        const daysLeft = Math.ceil(
+          (expDate.getTime() - todayDate.getTime()) / (1000 * 60 * 60 * 24)
+        );
+        return {
+          item_number: line.item_number,
+          lot_number: line.lot_number,
+          expiration_date: line.expiration_date,
+          days_until_expiry: daysLeft,
+          quantity_boxes: line.quantity_boxes,
+          supplier: company?.name ?? "Unknown",
+          received_date: r.date,
+        };
+      })
+      .filter((row): row is NonNullable<typeof row> => row !== null);
 
     return {
       ok: true,

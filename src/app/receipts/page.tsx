@@ -123,13 +123,19 @@ export default function ReceiptsPage() {
     });
 
     const rows: RecentReceipt[] = receipts.map(
-      (r: { id: number; date: string; company: { name: string } | null }) => ({
-        id: r.id,
-        date: r.date,
-        company_name: r.company?.name ?? "Unknown",
-        line_count: lineMap.get(r.id) ?? 0,
-        file_count: fileMap.get(r.id) ?? 0,
-      })
+      (r: { id: number; date: string; company: { name: string } | { name: string }[] | null }) => {
+        // Supabase types the joined relation as an array; FK points to a single row.
+        const companyName = Array.isArray(r.company)
+          ? (r.company[0]?.name ?? "Unknown")
+          : (r.company?.name ?? "Unknown");
+        return {
+          id: r.id,
+          date: r.date,
+          company_name: companyName,
+          line_count: lineMap.get(r.id) ?? 0,
+          file_count: fileMap.get(r.id) ?? 0,
+        };
+      }
     );
 
     setRecentReceipts(rows);
