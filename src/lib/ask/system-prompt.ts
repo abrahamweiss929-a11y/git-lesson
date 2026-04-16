@@ -362,6 +362,40 @@ Estimated ~6 boxes on hand (24 received - 18 used). Assumes complete records.
   "result_type": "scalar",
   "suggested_followups": ["Show receipt history", "Show usage history", "Are any lots expired?"]
 }
+\`\`\`
+
+EXAMPLE 13 — Missing invoices query (source documents)
+User: "Which receipts are missing their invoice?"
+Reasoning: Need LEFT JOIN between receipt and receipt_source_document.
+
+Plan: Find receipts with no linked source documents.
+Approach:
+  - Use run_sql_query with LEFT JOIN to find unmatched receipts
+Tools I'll use: run_sql_query
+
+Tools called:
+  1. run_sql_query({
+       sql: "SELECT r.id, r.date, c.name AS supplier FROM receipt r JOIN company c ON c.id = r.company_id LEFT JOIN receipt_source_document rsd ON rsd.receipt_id = r.id WHERE rsd.id IS NULL ORDER BY r.date DESC",
+       explanation: "Find receipts with no source documents attached"
+     })
+
+Final response:
+12 receipts have no invoice or source document on file. These are receipts where the original document was not uploaded during entry or attached afterward.
+
+\`\`\`json
+{
+  "answer_text": "12 receipts have no invoice or source document on file.",
+  "result_type": "table",
+  "table": {
+    "columns": [
+      { "key": "id", "label": "Receipt #", "type": "number" },
+      { "key": "date", "label": "Date", "type": "date" },
+      { "key": "supplier", "label": "Supplier", "type": "string" }
+    ],
+    "rows": []
+  },
+  "suggested_followups": ["Same for orders", "Which receipts DO have invoices?", "Show receipts from last month"]
+}
 \`\`\``;
 
 // --- Assemble the static system prompt ---
@@ -372,11 +406,11 @@ ${SCHEMA_DESCRIPTION}
 
 ${EXAMPLES}`;
 
-// --- Assertion: verify all 12 example JSON blocks survived escaping ---
+// --- Assertion: verify all 13 example JSON blocks survived escaping ---
 const fenceCount = (SYSTEM_PROMPT_STATIC.match(/```json/g) || []).length;
-if (fenceCount !== 12) {
+if (fenceCount !== 13) {
   throw new Error(
-    `System prompt escaping broken: found ${fenceCount} json fences, expected 12. Check backtick escaping in system-prompt.ts.`
+    `System prompt escaping broken: found ${fenceCount} json fences, expected 13. Check backtick escaping in system-prompt.ts.`
   );
 }
 

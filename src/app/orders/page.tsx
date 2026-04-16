@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import type { ExtractDocumentResponse } from "@/lib/extract-document.types";
 import CompanySelect from "@/components/CompanySelect";
@@ -10,6 +10,8 @@ import type { UploadedFileInfo } from "@/components/DocumentUpload";
 import CompanyMatchBanner from "@/components/CompanyMatchBanner";
 import AiFieldCounter from "@/components/AiFieldCounter";
 import VerificationLayout from "@/components/VerificationLayout";
+import FileBadge from "@/components/FileBadge";
+import AttachmentModal from "@/components/AttachmentModal";
 
 interface OrderLineForm {
   key: string;
@@ -29,6 +31,15 @@ function emptyLine(): OrderLineForm {
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
+}
+
+// v5: Recent order row with file count
+interface RecentOrder {
+  id: number;
+  date: string;
+  company_name: string;
+  line_count: number;
+  file_count: number;
 }
 
 export default function OrdersPage() {
@@ -55,6 +66,80 @@ export default function OrdersPage() {
 
   // --- Document viewer state ---
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFileInfo[]>([]);
+
+  // --- v5: Source document tracking ---
+  const [sourceDocumentIds, setSourceDocumentIds] = useState<number[]>([]);
+
+  // --- v5: Recent orders list ---
+  const [recentOrders, setRecentOrders] = useState<RecentOrder[]>([]);
+  const [loadingRecent, setLoadingRecent] = useState(true);
+
+  // --- v5: Attachment modal ---
+  const [modalTarget, setModalTarget] = useState<{
+    id: number;
+    label: string;
+  } | null>(null);
+
+  const fetchRecentOrders = useCallback(async () => {
+    setLoadingRecent(true);
+    const { data: orders } = await supabase
+      .from("purchase_order")
+      .select("id, date, company:company_id(name)")
+      .order("created_at", { ascending: false })
+      .limit(25);
+
+    if (!orders || orders.length === 0) {
+      setRecentOrders([]);
+      setLoadingRecent(false);
+      return;
+    }
+
+    const orderIds = orders.map((o: { id: number }) => o.id);
+
+    const [{ data: lineCounts }, { data: fileCounts }] = await Promise.all([
+      supabase
+        .from("purchase_order_line")
+        .select("purchase_order_id")
+        .in("purchase_order_id", orderIds),
+      supabase
+        .from("purchase_order_source_document")
+        .select("purchase_order_id")
+        .in("purchase_order_id", orderIds),
+    ]);
+
+    const lineMap = new Map<number, number>();
+    (lineCounts ?? []).forEach((row: { purchase_order_id: number }) => {
+      lineMap.set(
+        row.purchase_order_id,
+        (lineMap.get(row.purchase_order_id) ?? 0) + 1
+      );
+    });
+
+    const fileMap = new Map<number, number>();
+    (fileCounts ?? []).forEach((row: { purchase_order_id: number }) => {
+      fileMap.set(
+        row.purchase_order_id,
+        (fileMap.get(row.purchase_order_id) ?? 0) + 1
+      );
+    });
+
+    const rows: RecentOrder[] = orders.map(
+      (o: { id: number; date: string; company: { name: string } | null }) => ({
+        id: o.id,
+        date: o.date,
+        company_name: o.company?.name ?? "Unknown",
+        line_count: lineMap.get(o.id) ?? 0,
+        file_count: fileMap.get(o.id) ?? 0,
+      })
+    );
+
+    setRecentOrders(rows);
+    setLoadingRecent(false);
+  }, []);
+
+  useEffect(() => {
+    fetchRecentOrders();
+  }, [fetchRecentOrders]);
 
   useEffect(() => {
     return () => {
@@ -84,7 +169,6 @@ export default function OrdersPage() {
     setLines((prev) =>
       prev.map((l) => (l.key === key ? { ...l, [field]: value } : l))
     );
-    // Clear AI highlight for this field
     setAiFilledFields((prev) => {
       const id = `line:${key}:${field}`;
       if (!prev.has(id)) return prev;
@@ -96,7 +180,6 @@ export default function OrdersPage() {
 
   function removeLine(key: string) {
     setLines((prev) => prev.filter((l) => l.key !== key));
-    // Remove all AI highlights for this line
     setAiFilledFields((prev) => {
       const next = new Set(prev);
       for (const id of prev) {
@@ -175,7 +258,7 @@ export default function OrdersPage() {
     });
   }
 
-  // --- Form submission (v1 logic, unchanged) ---
+  // --- Form submission (v1 logic + v5 source document linking) ---
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!companyId) return;
@@ -216,18 +299,45 @@ export default function OrdersPage() {
         type: "error",
         message: `Order created but lines failed: ${linesErr.message}`,
       });
-    } else {
-      setStatus({ type: "success", message: "Order saved." });
-      setCompanyId(null);
-      setDate(todayISO());
-      setLines([emptyLine()]);
-      // Reset AI state
-      setExtractionResult(null);
-      setCompanyWarning(null);
-      setAiFilledFields(new Set());
-      uploadedFiles.forEach((f) => URL.revokeObjectURL(f.objectUrl));
-      setUploadedFiles([]);
+      setSaving(false);
+      return;
     }
+
+    // v5: Link source documents to order
+    if (sourceDocumentIds.length > 0) {
+      const { error: linkErr } = await supabase
+        .from("purchase_order_source_document")
+        .insert(
+          sourceDocumentIds.map((docId) => ({
+            purchase_order_id: order.id,
+            source_document_id: docId,
+          }))
+        );
+
+      if (linkErr) {
+        setStatus({
+          type: "error",
+          message: `Order saved but file linking failed: ${linkErr.message}`,
+        });
+        setSaving(false);
+        fetchRecentOrders();
+        return;
+      }
+    }
+
+    setStatus({ type: "success", message: "Order saved." });
+    setCompanyId(null);
+    setDate(todayISO());
+    setLines([emptyLine()]);
+    // Reset AI state
+    setExtractionResult(null);
+    setCompanyWarning(null);
+    setAiFilledFields(new Set());
+    uploadedFiles.forEach((f) => URL.revokeObjectURL(f.objectUrl));
+    setUploadedFiles([]);
+    setSourceDocumentIds([]);
+    // Refresh recent orders
+    fetchRecentOrders();
     setSaving(false);
   }
 
@@ -250,6 +360,7 @@ export default function OrdersPage() {
         <DocumentUpload
           onExtracted={handleExtracted}
           onFilesReady={setUploadedFiles}
+          onSourceDocumentIds={setSourceDocumentIds}
           disabled={saving}
           context="order"
         />
@@ -414,6 +525,85 @@ export default function OrdersPage() {
           {saving ? "Saving..." : "Save Order"}
         </button>
       </form>
+
+      {/* v5: Recent Orders list */}
+      <div className="mt-10 border-t pt-6">
+        <h2 className="text-lg font-semibold text-gray-800 mb-4">
+          Recent Orders
+        </h2>
+        {loadingRecent ? (
+          <p className="text-sm text-gray-500">Loading...</p>
+        ) : recentOrders.length === 0 ? (
+          <p className="text-sm text-gray-500">No orders yet.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-gray-500">
+                  <th className="pb-2 pr-4 font-medium">ID</th>
+                  <th className="pb-2 pr-4 font-medium">Date</th>
+                  <th className="pb-2 pr-4 font-medium">Supplier</th>
+                  <th className="pb-2 pr-4 font-medium">Lines</th>
+                  <th className="pb-2 font-medium">Files</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentOrders.map((o) => (
+                  <tr
+                    key={o.id}
+                    className="border-b border-gray-100 hover:bg-gray-50"
+                  >
+                    <td className="py-2 pr-4 text-gray-600">#{o.id}</td>
+                    <td className="py-2 pr-4 text-gray-700">{o.date}</td>
+                    <td className="py-2 pr-4 text-gray-700">
+                      {o.company_name}
+                    </td>
+                    <td className="py-2 pr-4 text-gray-600">{o.line_count}</td>
+                    <td className="py-2">
+                      <FileBadge
+                        count={o.file_count}
+                        onClick={() =>
+                          setModalTarget({
+                            id: o.id,
+                            label: `Order #${o.id}`,
+                          })
+                        }
+                      />
+                      {o.file_count === 0 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setModalTarget({
+                              id: o.id,
+                              label: `Order #${o.id}`,
+                            })
+                          }
+                          className="text-xs text-gray-400 hover:text-blue-600"
+                        >
+                          Attach
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* v5: Attachment modal */}
+      {modalTarget && (
+        <AttachmentModal
+          targetId={modalTarget.id}
+          context="order"
+          label={modalTarget.label}
+          onClose={() => {
+            setModalTarget(null);
+            fetchRecentOrders();
+          }}
+        />
+      )}
     </VerificationLayout>
   );
 }

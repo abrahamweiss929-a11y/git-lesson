@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import sharp from "sharp";
 import { supabase } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase-admin";
 import { findBestCompanyMatch } from "@/lib/fuzzy-match";
+import { validateFile, MAX_FILE_SIZE } from "@/lib/file-validation";
+import { buildStoragePath, uploadFile, deleteFile, checkStorageQuota } from "@/lib/storage";
+import { createRateLimiter } from "@/lib/rate-limit";
 import type {
   ExtractDocumentRequest,
   ExtractDocumentResponse,
@@ -11,16 +15,11 @@ import type {
 
 export const maxDuration = 60;
 
-const ALLOWED_MIME_TYPES = [
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "application/pdf",
-];
-
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 const MAX_PIXELS = 3_750_000; // 3.75 MP
 const MAX_EDGE = 1568;
+
+// Rate limit: 10 uploads per minute per IP
+const rateLimiter = createRateLimiter(10);
 
 const SYSTEM_PROMPT_SHARED_PREFIX = `You are a data extraction assistant for a laboratory inventory management system.
 You will receive a document (invoice, packing slip, receipt, or purchase order)
@@ -120,33 +119,82 @@ function errorResponse(
 
 export async function POST(
   request: NextRequest
-): Promise<NextResponse<ExtractDocumentResponse | ExtractDocumentError>> {
+): Promise<NextResponse<ExtractDocumentResponse | ExtractDocumentError | { error: string }>> {
+  // Rate limit
+  const ip =
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  const rateCheck = rateLimiter.check(ip);
+  if (!rateCheck.allowed) {
+    return NextResponse.json(
+      { error: "Too many uploads. Try again shortly." },
+      {
+        status: 429,
+        headers: { "Retry-After": String(rateCheck.retryAfterSeconds ?? 60) },
+      }
+    );
+  }
+
   try {
     const body: ExtractDocumentRequest = await request.json();
     const { file_base64, mime_type, file_name, context = "receipt" } = body;
 
-    // Validate MIME type
-    if (!ALLOWED_MIME_TYPES.includes(mime_type)) {
-      return errorResponse(
-        `Unsupported file type: ${mime_type}. Allowed: JPG, PNG, WebP, PDF.`,
-        "UNSUPPORTED_TYPE",
-        400
-      );
-    }
-
-    // Decode base64 and validate size
+    // Decode base64
     const buffer = Buffer.from(file_base64, "base64");
-    if (buffer.length > MAX_FILE_SIZE) {
+    const bytes = new Uint8Array(buffer);
+
+    // v5: Triple-check file validation (magic bytes + extension + mime)
+    const validation = validateFile(bytes, file_name, mime_type);
+    if (!validation.valid) {
       return errorResponse(
-        "File too large (max 10 MB).",
-        "FILE_TOO_LARGE",
+        validation.error!,
+        bytes.length > MAX_FILE_SIZE ? "FILE_TOO_LARGE" : "UNSUPPORTED_TYPE",
         400
       );
     }
 
-    // Resize large images (not PDFs)
+    // v5: Upload file to Supabase Storage
+    const storagePath = buildStoragePath(context, file_name);
+    const uploadResult = await uploadFile(storagePath, buffer, mime_type);
+    if (uploadResult.error) {
+      return errorResponse(
+        `Failed to save file: ${uploadResult.error}`,
+        "UNKNOWN",
+        500
+      );
+    }
+
+    // v5: Insert source_document row
+    const { data: sourceDoc, error: sourceDocErr } = await supabaseAdmin
+      .from("source_document")
+      .insert({
+        storage_path: storagePath,
+        original_filename: file_name,
+        mime_type,
+        size_bytes: buffer.length,
+        uploaded_via: `${context}_extraction`,
+        context,
+      })
+      .select("id")
+      .single();
+
+    if (sourceDocErr || !sourceDoc) {
+      // Best-effort cleanup: delete the uploaded file
+      await deleteFile(storagePath);
+      return errorResponse(
+        `Failed to record file metadata: ${sourceDocErr?.message ?? "Unknown error"}`,
+        "UNKNOWN",
+        500
+      );
+    }
+
+    const sourceDocumentId: number = sourceDoc.id;
+
+    // v5: Non-blocking storage quota check (logs warning if > 90%)
+    checkStorageQuota().catch(() => {});
+
+    // Resize large images for Claude (not PDFs) — same as before
     let processedBase64 = file_base64;
-    let processedMimeType = mime_type;
+    const processedMimeType = mime_type;
     if (mime_type !== "application/pdf") {
       const metadata = await sharp(buffer).metadata();
       const w = metadata.width ?? 0;
@@ -162,153 +210,193 @@ export async function POST(
           })
           .toBuffer();
         processedBase64 = resized.toString("base64");
-        // Keep original mime type
       }
     }
 
-    // Call Claude
-    const anthropic = new Anthropic();
-
-    const contentBlock =
-      processedMimeType === "application/pdf"
-        ? {
-            type: "document" as const,
-            source: {
-              type: "base64" as const,
-              media_type: "application/pdf" as const,
-              data: processedBase64,
-            },
-          }
-        : {
-            type: "image" as const,
-            source: {
-              type: "base64" as const,
-              media_type: processedMimeType as
-                | "image/jpeg"
-                | "image/png"
-                | "image/webp",
-              data: processedBase64,
-            },
-          };
-
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-5-20250929",
-      max_tokens: 4096,
-      system: buildSystemPrompt(context),
-      messages: [
-        {
-          role: "user",
-          content: [contentBlock, { type: "text", text: USER_MESSAGE }],
-        },
-      ],
-    });
-
-    // Extract text from response
-    const textBlock = response.content.find((b) => b.type === "text");
-    if (!textBlock || textBlock.type !== "text") {
-      return errorResponse(
-        "AI returned no text response.",
-        "AI_ERROR",
-        500
-      );
-    }
-
-    // Parse JSON — strip markdown code fences if present
-    let rawText = textBlock.text.trim();
-    const fenceMatch = rawText.match(
-      /^\s*```(?:json)?\s*\n?([\s\S]*?)\n?\s*```\s*$/
-    );
-    if (fenceMatch) {
-      rawText = fenceMatch[1].trim();
-    }
-
-    let parsed: {
-      document_type?: string;
-      company_name?: string | null;
-      date?: string | null;
-      line_items?: Array<{
-        item_number?: string;
-        qty?: number;
-        lot_number?: string | null;
-        expiration?: string | null;
-        unit_price?: number | null;
-      }>;
-      confidence_notes?: string;
-    };
-
+    // Call Claude for extraction
+    // v5: If extraction fails, return 200 with extraction_failed: true
     try {
-      parsed = JSON.parse(rawText);
-    } catch {
-      return errorResponse(
-        "Failed to parse AI response as JSON. Please fill the form manually.",
-        "PARSE_ERROR",
-        500
-      );
-    }
+      const anthropic = new Anthropic();
 
-    if (!parsed.line_items || !Array.isArray(parsed.line_items)) {
-      return errorResponse(
-        "AI response missing line_items. Please fill the form manually.",
-        "PARSE_ERROR",
-        500
-      );
-    }
-
-    // Map AI field names to form field names (context-dependent)
-    const lineItems =
-      context === "order"
-        ? parsed.line_items.map((item) => {
-            const qty = Number(item.qty);
-            const price =
-              item.unit_price != null ? Number(item.unit_price) : null;
-            return {
-              item_number: String(item.item_number ?? ""),
-              quantity_boxes: Number.isFinite(qty) ? qty : 0,
-              price:
-                price != null && Number.isFinite(price) ? price : null,
+      const contentBlock =
+        processedMimeType === "application/pdf"
+          ? {
+              type: "document" as const,
+              source: {
+                type: "base64" as const,
+                media_type: "application/pdf" as const,
+                data: processedBase64,
+              },
+            }
+          : {
+              type: "image" as const,
+              source: {
+                type: "base64" as const,
+                media_type: processedMimeType as
+                  | "image/jpeg"
+                  | "image/png"
+                  | "image/webp",
+                data: processedBase64,
+              },
             };
-          })
-        : parsed.line_items.map((item) => {
-            const qty = Number(item.qty);
-            return {
-              item_number: String(item.item_number ?? ""),
-              quantity_boxes: Number.isFinite(qty) ? qty : 0,
-              lot_number: String(item.lot_number ?? ""),
-              expiration_date: item.expiration ?? null,
-            };
-          });
 
-    // Fuzzy-match company
-    let companyMatch: { id: number; name: string } | null = null;
-    const companyNameRaw = parsed.company_name ?? null;
+      const response = await anthropic.messages.create({
+        model: "claude-sonnet-4-5-20250929",
+        max_tokens: 4096,
+        system: buildSystemPrompt(context),
+        messages: [
+          {
+            role: "user",
+            content: [contentBlock, { type: "text", text: USER_MESSAGE }],
+          },
+        ],
+      });
 
-    if (companyNameRaw) {
-      const { data: companies } = await supabase
-        .from("company")
-        .select("id, name");
-      if (companies) {
-        const result = findBestCompanyMatch(companyNameRaw, companies);
-        if (result) {
-          companyMatch = result.match;
+      // Extract text from response
+      const textBlock = response.content.find((b) => b.type === "text");
+      if (!textBlock || textBlock.type !== "text") {
+        // Extraction failed — return 200 with extraction_failed
+        return NextResponse.json({
+          company_match: null,
+          company_name_raw: null,
+          date: null,
+          line_items: [],
+          confidence_notes: "",
+          document_type: "unknown",
+          source_document_id: sourceDocumentId,
+          extraction_failed: true,
+          error_message: "AI returned no text response. Please fill the form manually.",
+        });
+      }
+
+      // Parse JSON — strip markdown code fences if present
+      let rawText = textBlock.text.trim();
+      const fenceMatch = rawText.match(
+        /^\s*```(?:json)?\s*\n?([\s\S]*?)\n?\s*```\s*$/
+      );
+      if (fenceMatch) {
+        rawText = fenceMatch[1].trim();
+      }
+
+      let parsed: {
+        document_type?: string;
+        company_name?: string | null;
+        date?: string | null;
+        line_items?: Array<{
+          item_number?: string;
+          qty?: number;
+          lot_number?: string | null;
+          expiration?: string | null;
+          unit_price?: number | null;
+        }>;
+        confidence_notes?: string;
+      };
+
+      try {
+        parsed = JSON.parse(rawText);
+      } catch {
+        // Parse failed — return 200 with extraction_failed
+        return NextResponse.json({
+          company_match: null,
+          company_name_raw: null,
+          date: null,
+          line_items: [],
+          confidence_notes: "",
+          document_type: "unknown",
+          source_document_id: sourceDocumentId,
+          extraction_failed: true,
+          error_message: "Failed to parse AI response. Please fill the form manually.",
+        });
+      }
+
+      if (!parsed.line_items || !Array.isArray(parsed.line_items)) {
+        return NextResponse.json({
+          company_match: null,
+          company_name_raw: null,
+          date: null,
+          line_items: [],
+          confidence_notes: "",
+          document_type: "unknown",
+          source_document_id: sourceDocumentId,
+          extraction_failed: true,
+          error_message: "AI response missing line items. Please fill the form manually.",
+        });
+      }
+
+      // Map AI field names to form field names (context-dependent)
+      const lineItems =
+        context === "order"
+          ? parsed.line_items.map((item) => {
+              const qty = Number(item.qty);
+              const price =
+                item.unit_price != null ? Number(item.unit_price) : null;
+              return {
+                item_number: String(item.item_number ?? ""),
+                quantity_boxes: Number.isFinite(qty) ? qty : 0,
+                price:
+                  price != null && Number.isFinite(price) ? price : null,
+              };
+            })
+          : parsed.line_items.map((item) => {
+              const qty = Number(item.qty);
+              return {
+                item_number: String(item.item_number ?? ""),
+                quantity_boxes: Number.isFinite(qty) ? qty : 0,
+                lot_number: String(item.lot_number ?? ""),
+                expiration_date: item.expiration ?? null,
+              };
+            });
+
+      // Fuzzy-match company
+      let companyMatch: { id: number; name: string } | null = null;
+      const companyNameRaw = parsed.company_name ?? null;
+
+      if (companyNameRaw) {
+        const { data: companies } = await supabase
+          .from("company")
+          .select("id, name");
+        if (companies) {
+          const result = findBestCompanyMatch(companyNameRaw, companies);
+          if (result) {
+            companyMatch = result.match;
+          }
         }
       }
+
+      const result: ExtractDocumentResponse = {
+        company_match: companyMatch,
+        company_name_raw: companyNameRaw,
+        date: parsed.date ?? null,
+        line_items: lineItems,
+        confidence_notes: parsed.confidence_notes ?? "",
+        document_type: parsed.document_type ?? "unknown",
+        source_document_id: sourceDocumentId,
+      };
+
+      return NextResponse.json(result);
+    } catch (extractionErr) {
+      // AI extraction failed — file is saved, return 200 with extraction_failed
+      const message =
+        extractionErr instanceof Error
+          ? extractionErr.message
+          : "An unknown extraction error occurred.";
+      return NextResponse.json({
+        company_match: null,
+        company_name_raw: null,
+        date: null,
+        line_items: [],
+        confidence_notes: "",
+        document_type: "unknown",
+        source_document_id: sourceDocumentId,
+        extraction_failed: true,
+        error_message: `Extraction failed: ${message}. File saved — please fill the form manually.`,
+      });
     }
-
-    const result: ExtractDocumentResponse = {
-      company_match: companyMatch,
-      company_name_raw: companyNameRaw,
-      date: parsed.date ?? null,
-      line_items: lineItems,
-      confidence_notes: parsed.confidence_notes ?? "",
-      document_type: parsed.document_type ?? "unknown",
-    };
-
-    return NextResponse.json(result);
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "An unknown error occurred.";
     return errorResponse(
-      `Extraction failed: ${message}`,
+      `Request failed: ${message}`,
       "UNKNOWN",
       500
     );

@@ -12,26 +12,15 @@ import {
   MalformedResponseError,
 } from "@/lib/ask/parse-response";
 import type { ToolUseRecord } from "@/lib/ai-tools/types";
+import { createRateLimiter } from "@/lib/rate-limit";
 
 export const maxDuration = 60;
 
 const MAX_ITERATIONS = 10;
 const INTERNAL_TIMEOUT_MS = 50_000; // abort gracefully before Vercel's 60s
 
-// Simple rate limiter: 30 requests/minute per IP
-const rateLimitMap = new Map<string, number[]>();
-const RATE_LIMIT = 30;
-const RATE_WINDOW_MS = 60_000;
-
-function checkRateLimit(ip: string): boolean {
-  const now = Date.now();
-  const timestamps = rateLimitMap.get(ip) ?? [];
-  const recent = timestamps.filter((t) => now - t < RATE_WINDOW_MS);
-  if (recent.length >= RATE_LIMIT) return false;
-  recent.push(now);
-  rateLimitMap.set(ip, recent);
-  return true;
-}
+// Rate limit: 30 requests/minute per IP (uses shared rate-limit module)
+const rateLimiter = createRateLimiter(30);
 
 export async function POST(
   request: NextRequest
@@ -40,10 +29,14 @@ export async function POST(
   const ip =
     request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
     "unknown";
-  if (!checkRateLimit(ip)) {
+  const rateCheck = rateLimiter.check(ip);
+  if (!rateCheck.allowed) {
     return NextResponse.json(
       { error: "Too many requests. Try again in a minute." },
-      { status: 429 }
+      {
+        status: 429,
+        headers: { "Retry-After": String(rateCheck.retryAfterSeconds ?? 60) },
+      }
     );
   }
 
