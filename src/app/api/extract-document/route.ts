@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { findBestCompanyMatch } from "@/lib/fuzzy-match";
 import { validateFile, MAX_FILE_SIZE } from "@/lib/file-validation";
-import { buildStoragePath, uploadFile, deleteFile } from "@/lib/storage";
+import { buildStoragePath, uploadFile, deleteFile, checkStorageQuota } from "@/lib/storage";
 import { createRateLimiter } from "@/lib/rate-limit";
 import type {
   ExtractDocumentRequest,
@@ -188,6 +188,9 @@ export async function POST(
     }
 
     const sourceDocumentId: number = sourceDoc.id;
+
+    // v5: Non-blocking storage quota check (logs warning if > 90%)
+    checkStorageQuota().catch(() => {});
 
     // Resize large images for Claude (not PDFs) — same as before
     let processedBase64 = file_base64;

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { validateFile } from "@/lib/file-validation";
-import { buildStoragePath, uploadFile, deleteFile } from "@/lib/storage";
+import { buildStoragePath, uploadFile, deleteFile, checkStorageQuota } from "@/lib/storage";
 import { createRateLimiter } from "@/lib/rate-limit";
 
 export const maxDuration = 60;
@@ -105,6 +105,9 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       );
     }
+
+    // v5: Non-blocking storage quota check (logs warning if > 90%)
+    checkStorageQuota().catch(() => {});
 
     // Insert join row to link document to target
     const joinTable =

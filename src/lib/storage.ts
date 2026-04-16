@@ -81,3 +81,67 @@ export async function getSignedUrl(
 
   return { signedUrl: data.signedUrl };
 }
+
+// Storage quota: Supabase free tier = 1 GB. Warn at 90% (900 MB).
+const QUOTA_WARNING_BYTES = 900 * 1024 * 1024;
+
+/**
+ * Check total storage used by source documents.
+ * Logs a warning if over 90% of free tier (900 MB).
+ * Returns total bytes used.
+ */
+export async function checkStorageQuota(): Promise<number> {
+  const { data, error } = await supabaseAdmin
+    .from("source_document")
+    .select("size_bytes");
+
+  if (error || !data) return 0;
+
+  const totalBytes = data.reduce(
+    (sum: number, row: { size_bytes: number }) => sum + (row.size_bytes ?? 0),
+    0
+  );
+
+  if (totalBytes > QUOTA_WARNING_BYTES) {
+    console.warn(
+      `[v5 Storage Warning] Source documents using ${(totalBytes / 1024 / 1024).toFixed(1)} MB of ~1024 MB free tier (${((totalBytes / (1024 * 1024 * 1024)) * 100).toFixed(1)}%). Consider upgrading.`
+    );
+  }
+
+  return totalBytes;
+}
+
+/**
+ * Get storage usage info (for AI assistant queries).
+ */
+export async function getStorageUsageInfo(): Promise<{
+  total_bytes: number;
+  total_mb: string;
+  file_count: number;
+  percent_of_free_tier: string;
+}> {
+  const { data, error } = await supabaseAdmin
+    .from("source_document")
+    .select("size_bytes");
+
+  if (error || !data) {
+    return {
+      total_bytes: 0,
+      total_mb: "0.0",
+      file_count: 0,
+      percent_of_free_tier: "0.0",
+    };
+  }
+
+  const totalBytes = data.reduce(
+    (sum: number, row: { size_bytes: number }) => sum + (row.size_bytes ?? 0),
+    0
+  );
+
+  return {
+    total_bytes: totalBytes,
+    total_mb: (totalBytes / (1024 * 1024)).toFixed(1),
+    file_count: data.length,
+    percent_of_free_tier: ((totalBytes / (1024 * 1024 * 1024)) * 100).toFixed(1),
+  };
+}
