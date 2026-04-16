@@ -19,12 +19,13 @@ const ACCEPTED_TYPES = [
   "image/webp",
   "application/pdf",
 ];
-const MAX_SIZE = 10 * 1024 * 1024; // 10 MB
+const MAX_SIZE = 25 * 1024 * 1024; // 25 MB (v5: raised from 10 MB)
 const ACCEPT_STRING = ".jpg,.jpeg,.png,.webp,.pdf";
 
 interface DocumentUploadProps {
   onExtracted: (result: ExtractDocumentResponse) => void;
   onFilesReady?: (files: UploadedFileInfo[]) => void;
+  onSourceDocumentIds?: (ids: number[]) => void; // v5: collected per-file source_document_ids
   disabled?: boolean;
   context: "receipt" | "order";
 }
@@ -36,11 +37,15 @@ interface FileEntry {
   file: File;
   status: FileStatus;
   errorMessage?: string;
+  warningMessage?: string; // v5: for extraction_failed (file saved but AI failed)
   result?: ExtractDocumentResponse;
+  sourceDocumentId?: number; // v5: tracked even when extraction fails
 }
 
 function mergeResults(entries: FileEntry[]): ExtractDocumentResponse | null {
-  const successful = entries.filter((e) => e.status === "done" && e.result);
+  const successful = entries.filter(
+    (e) => e.status === "done" && e.result && !e.result.extraction_failed
+  );
   if (successful.length === 0) return null;
 
   const allLineItems = successful.flatMap((e) => e.result!.line_items);
@@ -71,6 +76,7 @@ function mergeResults(entries: FileEntry[]): ExtractDocumentResponse | null {
 export default function DocumentUpload({
   onExtracted,
   onFilesReady,
+  onSourceDocumentIds,
   disabled,
   context,
 }: DocumentUploadProps) {
@@ -103,7 +109,7 @@ export default function DocumentUpload({
       return {
         ...entry,
         status: "error",
-        errorMessage: "File too large (max 10 MB).",
+        errorMessage: "File too large (max 25 MB).",
       };
     }
 
@@ -148,15 +154,35 @@ export default function DocumentUpload({
 
       const data: ExtractDocumentResponse = await res.json();
 
-      if (data.line_items.length === 0) {
+      // v5: Handle extraction_failed (file saved, but AI couldn't extract)
+      if (data.extraction_failed) {
         return {
           ...entry,
-          status: "error",
-          errorMessage: "No line items detected in this document.",
+          status: "done",
+          result: data,
+          sourceDocumentId: data.source_document_id,
+          warningMessage:
+            data.error_message ||
+            "File saved, but auto-extraction failed. Please fill the form manually.",
         };
       }
 
-      return { ...entry, status: "done", result: data };
+      if (data.line_items.length === 0) {
+        return {
+          ...entry,
+          status: "done",
+          result: data,
+          sourceDocumentId: data.source_document_id,
+          warningMessage: "No line items detected. File saved — fill the form manually.",
+        };
+      }
+
+      return {
+        ...entry,
+        status: "done",
+        result: data,
+        sourceDocumentId: data.source_document_id,
+      };
     } catch (err) {
       return {
         ...entry,
@@ -186,27 +212,36 @@ export default function DocumentUpload({
 
     setBusy(false);
 
+    // v5: Collect all source_document_ids (including extraction_failed ones)
+    const sourceDocIds = results
+      .filter((e) => e.sourceDocumentId != null)
+      .map((e) => e.sourceDocumentId!);
+    if (sourceDocIds.length > 0) {
+      onSourceDocumentIds?.(sourceDocIds);
+    }
+
     const merged = mergeResults(results);
     if (merged) {
       onExtracted(merged);
-
-      // Expose file data for document viewer
-      const fileInfos: UploadedFileInfo[] = results
-        .filter((e) => e.status === "done")
-        .map((e) => ({
-          id: e.id,
-          name: e.file.name,
-          mimeType: e.file.type,
-          objectUrl: URL.createObjectURL(e.file),
-        }));
-      onFilesReady?.(fileInfos);
     }
+
+    // Expose file data for document viewer
+    const fileInfos: UploadedFileInfo[] = results
+      .filter((e) => e.status === "done")
+      .map((e) => ({
+        id: e.id,
+        name: e.file.name,
+        mimeType: e.file.type,
+        objectUrl: URL.createObjectURL(e.file),
+      }));
+    onFilesReady?.(fileInfos);
   }
 
   function handleReset() {
     setFiles([]);
     if (inputRef.current) inputRef.current.value = "";
     onFilesReady?.([]);
+    onSourceDocumentIds?.([]);
   }
 
   const hasFiles = files.length > 0;
@@ -214,8 +249,9 @@ export default function DocumentUpload({
     hasFiles &&
     files.every((f) => f.status === "done" || f.status === "error");
   const doneCount = files.filter((f) => f.status === "done").length;
+  const warningCount = files.filter((f) => f.warningMessage).length;
   const totalItems = files
-    .filter((f) => f.status === "done" && f.result)
+    .filter((f) => f.status === "done" && f.result && !f.result.extraction_failed)
     .reduce((sum, f) => sum + f.result!.line_items.length, 0);
 
   return (
@@ -272,8 +308,11 @@ export default function DocumentUpload({
                 entry.status === "extracting") && (
                 <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
               )}
-              {entry.status === "done" && (
+              {entry.status === "done" && !entry.warningMessage && (
                 <span className="text-green-600">&#10003;</span>
+              )}
+              {entry.status === "done" && entry.warningMessage && (
+                <span className="text-amber-500">&#9888;</span>
               )}
               {entry.status === "error" && (
                 <span className="text-red-500">&#10007;</span>
@@ -282,17 +321,21 @@ export default function DocumentUpload({
                 className={
                   entry.status === "error"
                     ? "text-red-600"
-                    : entry.status === "done"
-                      ? "text-green-700"
-                      : "text-gray-600"
+                    : entry.warningMessage
+                      ? "text-amber-600"
+                      : entry.status === "done"
+                        ? "text-green-700"
+                        : "text-gray-600"
                 }
               >
                 {entry.file.name}
                 {entry.status === "reading" && " — Reading..."}
                 {entry.status === "extracting" && " — Extracting..."}
                 {entry.status === "done" &&
+                  !entry.warningMessage &&
                   entry.result &&
                   ` — ${entry.result.line_items.length} item${entry.result.line_items.length !== 1 ? "s" : ""}`}
+                {entry.warningMessage && ` — ${entry.warningMessage}`}
                 {entry.status === "error" &&
                   entry.errorMessage &&
                   ` — ${entry.errorMessage}`}
@@ -303,9 +346,15 @@ export default function DocumentUpload({
       )}
 
       {/* Single-file status messages */}
-      {files.length === 1 && files[0].status === "done" && (
+      {files.length === 1 && files[0].status === "done" && !files[0].warningMessage && (
         <p className="mt-2 text-sm text-green-700">
           &#10003; Data extracted from {files[0].file.name}
+        </p>
+      )}
+
+      {files.length === 1 && files[0].warningMessage && (
+        <p className="mt-2 text-sm text-amber-600">
+          &#9888; {files[0].warningMessage}
         </p>
       )}
 
@@ -319,10 +368,21 @@ export default function DocumentUpload({
 
       {/* Multi-file summary */}
       {files.length > 1 && allDone && doneCount > 0 && (
-        <p className="mt-2 text-sm text-green-700">
-          &#10003; Extracted {totalItems} item{totalItems !== 1 ? "s" : ""}{" "}
-          from {doneCount} file{doneCount !== 1 ? "s" : ""}
-        </p>
+        <div className="mt-2">
+          {totalItems > 0 && (
+            <p className="text-sm text-green-700">
+              &#10003; Extracted {totalItems} item{totalItems !== 1 ? "s" : ""}{" "}
+              from {doneCount - warningCount} file
+              {doneCount - warningCount !== 1 ? "s" : ""}
+            </p>
+          )}
+          {warningCount > 0 && (
+            <p className="text-sm text-amber-600">
+              &#9888; {warningCount} file{warningCount !== 1 ? "s" : ""} saved
+              but extraction failed — fill data manually
+            </p>
+          )}
+        </div>
       )}
     </div>
   );

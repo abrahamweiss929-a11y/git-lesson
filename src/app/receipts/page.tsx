@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import type { ExtractDocumentResponse } from "@/lib/extract-document.types";
 import CompanySelect from "@/components/CompanySelect";
@@ -10,6 +10,8 @@ import type { UploadedFileInfo } from "@/components/DocumentUpload";
 import CompanyMatchBanner from "@/components/CompanyMatchBanner";
 import AiFieldCounter from "@/components/AiFieldCounter";
 import VerificationLayout from "@/components/VerificationLayout";
+import FileBadge from "@/components/FileBadge";
+import AttachmentModal from "@/components/AttachmentModal";
 
 interface ReceiptLineForm {
   key: string;
@@ -31,6 +33,15 @@ function emptyLine(): ReceiptLineForm {
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
+}
+
+// v5: Recent receipt row with file count
+interface RecentReceipt {
+  id: number;
+  date: string;
+  company_name: string;
+  line_count: number;
+  file_count: number;
 }
 
 export default function ReceiptsPage() {
@@ -57,6 +68,77 @@ export default function ReceiptsPage() {
 
   // --- Document viewer state ---
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFileInfo[]>([]);
+
+  // --- v5: Source document tracking ---
+  const [sourceDocumentIds, setSourceDocumentIds] = useState<number[]>([]);
+
+  // --- v5: Recent receipts list ---
+  const [recentReceipts, setRecentReceipts] = useState<RecentReceipt[]>([]);
+  const [loadingRecent, setLoadingRecent] = useState(true);
+
+  // --- v5: Attachment modal ---
+  const [modalTarget, setModalTarget] = useState<{
+    id: number;
+    label: string;
+  } | null>(null);
+
+  const fetchRecentReceipts = useCallback(async () => {
+    setLoadingRecent(true);
+    // Fetch last 25 receipts with company name, line count, and file count
+    const { data: receipts } = await supabase
+      .from("receipt")
+      .select("id, date, company:company_id(name)")
+      .order("created_at", { ascending: false })
+      .limit(25);
+
+    if (!receipts || receipts.length === 0) {
+      setRecentReceipts([]);
+      setLoadingRecent(false);
+      return;
+    }
+
+    // Get line counts and file counts for these receipts
+    const receiptIds = receipts.map((r: { id: number }) => r.id);
+
+    const [{ data: lineCounts }, { data: fileCounts }] = await Promise.all([
+      supabase
+        .from("receipt_line")
+        .select("receipt_id")
+        .in("receipt_id", receiptIds),
+      supabase
+        .from("receipt_source_document")
+        .select("receipt_id")
+        .in("receipt_id", receiptIds),
+    ]);
+
+    // Count per receipt
+    const lineMap = new Map<number, number>();
+    (lineCounts ?? []).forEach((row: { receipt_id: number }) => {
+      lineMap.set(row.receipt_id, (lineMap.get(row.receipt_id) ?? 0) + 1);
+    });
+
+    const fileMap = new Map<number, number>();
+    (fileCounts ?? []).forEach((row: { receipt_id: number }) => {
+      fileMap.set(row.receipt_id, (fileMap.get(row.receipt_id) ?? 0) + 1);
+    });
+
+    const rows: RecentReceipt[] = receipts.map(
+      (r: { id: number; date: string; company: { name: string } | null }) => ({
+        id: r.id,
+        date: r.date,
+        company_name: r.company?.name ?? "Unknown",
+        line_count: lineMap.get(r.id) ?? 0,
+        file_count: fileMap.get(r.id) ?? 0,
+      })
+    );
+
+    setRecentReceipts(rows);
+    setLoadingRecent(false);
+  }, []);
+
+  useEffect(() => {
+    fetchRecentReceipts();
+  }, [fetchRecentReceipts]);
 
   useEffect(() => {
     return () => {
@@ -180,7 +262,7 @@ export default function ReceiptsPage() {
     });
   }
 
-  // --- Form submission (v1 logic, unchanged) ---
+  // --- Form submission (v1 logic + v5 source document linking) ---
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!companyId) return;
@@ -223,18 +305,45 @@ export default function ReceiptsPage() {
         type: "error",
         message: `Receipt created but lines failed: ${linesErr.message}`,
       });
-    } else {
-      setStatus({ type: "success", message: "Receipt saved." });
-      setCompanyId(null);
-      setDate(todayISO());
-      setLines([emptyLine()]);
-      // Reset AI state
-      setExtractionResult(null);
-      setCompanyWarning(null);
-      setAiFilledFields(new Set());
-      uploadedFiles.forEach((f) => URL.revokeObjectURL(f.objectUrl));
-      setUploadedFiles([]);
+      setSaving(false);
+      return;
     }
+
+    // v5: Link source documents to receipt
+    if (sourceDocumentIds.length > 0) {
+      const { error: linkErr } = await supabase
+        .from("receipt_source_document")
+        .insert(
+          sourceDocumentIds.map((docId) => ({
+            receipt_id: receipt.id,
+            source_document_id: docId,
+          }))
+        );
+
+      if (linkErr) {
+        setStatus({
+          type: "error",
+          message: `Receipt saved but file linking failed: ${linkErr.message}`,
+        });
+        setSaving(false);
+        fetchRecentReceipts();
+        return;
+      }
+    }
+
+    setStatus({ type: "success", message: "Receipt saved." });
+    setCompanyId(null);
+    setDate(todayISO());
+    setLines([emptyLine()]);
+    // Reset AI state
+    setExtractionResult(null);
+    setCompanyWarning(null);
+    setAiFilledFields(new Set());
+    uploadedFiles.forEach((f) => URL.revokeObjectURL(f.objectUrl));
+    setUploadedFiles([]);
+    setSourceDocumentIds([]);
+    // Refresh recent receipts
+    fetchRecentReceipts();
     setSaving(false);
   }
 
@@ -254,7 +363,13 @@ export default function ReceiptsPage() {
 
       {/* Document upload widget */}
       <div className="mb-4">
-        <DocumentUpload onExtracted={handleExtracted} onFilesReady={setUploadedFiles} disabled={saving} context="receipt" />
+        <DocumentUpload
+          onExtracted={handleExtracted}
+          onFilesReady={setUploadedFiles}
+          onSourceDocumentIds={setSourceDocumentIds}
+          disabled={saving}
+          context="receipt"
+        />
       </div>
 
       {/* AI field counter */}
@@ -429,6 +544,85 @@ export default function ReceiptsPage() {
           {saving ? "Saving..." : "Save Receipt"}
         </button>
       </form>
+
+      {/* v5: Recent Receipts list */}
+      <div className="mt-10 border-t pt-6">
+        <h2 className="text-lg font-semibold text-gray-800 mb-4">
+          Recent Receipts
+        </h2>
+        {loadingRecent ? (
+          <p className="text-sm text-gray-500">Loading...</p>
+        ) : recentReceipts.length === 0 ? (
+          <p className="text-sm text-gray-500">No receipts yet.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-gray-500">
+                  <th className="pb-2 pr-4 font-medium">ID</th>
+                  <th className="pb-2 pr-4 font-medium">Date</th>
+                  <th className="pb-2 pr-4 font-medium">Supplier</th>
+                  <th className="pb-2 pr-4 font-medium">Lines</th>
+                  <th className="pb-2 font-medium">Files</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentReceipts.map((r) => (
+                  <tr
+                    key={r.id}
+                    className="border-b border-gray-100 hover:bg-gray-50"
+                  >
+                    <td className="py-2 pr-4 text-gray-600">#{r.id}</td>
+                    <td className="py-2 pr-4 text-gray-700">{r.date}</td>
+                    <td className="py-2 pr-4 text-gray-700">
+                      {r.company_name}
+                    </td>
+                    <td className="py-2 pr-4 text-gray-600">{r.line_count}</td>
+                    <td className="py-2">
+                      <FileBadge
+                        count={r.file_count}
+                        onClick={() =>
+                          setModalTarget({
+                            id: r.id,
+                            label: `Receipt #${r.id}`,
+                          })
+                        }
+                      />
+                      {r.file_count === 0 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setModalTarget({
+                              id: r.id,
+                              label: `Receipt #${r.id}`,
+                            })
+                          }
+                          className="text-xs text-gray-400 hover:text-blue-600"
+                        >
+                          Attach
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* v5: Attachment modal */}
+      {modalTarget && (
+        <AttachmentModal
+          targetId={modalTarget.id}
+          context="receipt"
+          label={modalTarget.label}
+          onClose={() => {
+            setModalTarget(null);
+            fetchRecentReceipts(); // refresh counts
+          }}
+        />
+      )}
     </VerificationLayout>
   );
 }
