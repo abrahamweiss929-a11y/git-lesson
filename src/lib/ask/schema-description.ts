@@ -164,6 +164,38 @@ Columns:
 NOTE: No company/supplier column — usage is not tied to a supplier.
 
 ═══════════════════════════════════════════════════════════════════════
+TABLES: source_document, receipt_source_document, purchase_order_source_document
+═══════════════════════════════════════════════════════════════════════
+
+source_document stores uploaded invoice/PO files. Each row represents one
+uploaded file (PDF or image). Files are linked to receipts and orders via
+join tables. The actual files live in Supabase Storage (private bucket).
+
+source_document columns:
+- id (bigint, PK)
+- storage_path (text, NOT NULL, UNIQUE) — path within the storage bucket
+- original_filename (text, NOT NULL) — user-facing name, e.g., "invoice_march.pdf"
+- mime_type (text, NOT NULL) — e.g., "application/pdf", "image/png"
+- size_bytes (bigint, NOT NULL)
+- uploaded_at (timestamptz, default now())
+- uploaded_via (text, NOT NULL) — 'receipt_extraction' | 'order_extraction' | 'manual_attach'
+- context (text, NOT NULL) — 'receipt' | 'order'
+
+receipt_source_document: join table (receipt_id, source_document_id).
+  One receipt can have multiple files, one file can theoretically link to
+  multiple receipts. CASCADE on receipt delete, RESTRICT on document delete.
+
+purchase_order_source_document: same but for orders (purchase_order_id).
+
+Common queries:
+- "Which receipts have their original invoice on file?"
+  → find receipts with any matching row in receipt_source_document
+- "Which receipts are missing their invoice?"
+  → find receipts with NO matching row in receipt_source_document (LEFT JOIN)
+- "Show me the invoice for receipt X"
+  → use get_source_documents_for_item or a direct query on receipt_source_document
+
+═══════════════════════════════════════════════════════════════════════
 BACKUP TABLES — DO NOT QUERY UNLESS EXPLICITLY ASKED
 ═══════════════════════════════════════════════════════════════════════
 

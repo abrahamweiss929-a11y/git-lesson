@@ -100,4 +100,5 @@ export async function ensureToolsRegistered() {
   await import("./aggregate-query");
   await import("./describe-table");
   await import("./run-sql-query");
+  await import("./get-source-documents-for-item");
 }
