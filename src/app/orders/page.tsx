@@ -12,6 +12,7 @@ import AiFieldCounter from "@/components/AiFieldCounter";
 import VerificationLayout from "@/components/VerificationLayout";
 import FileBadge from "@/components/FileBadge";
 import AttachmentModal from "@/components/AttachmentModal";
+import DeleteConfirmModal from "@/components/DeleteConfirmModal";
 
 interface OrderLineForm {
   key: string;
@@ -79,6 +80,11 @@ export default function OrdersPage() {
     id: number;
     label: string;
   } | null>(null);
+
+  // --- Delete state ---
+  const [deleteTarget, setDeleteTarget] = useState<RecentOrder | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const fetchRecentOrders = useCallback(async () => {
     setLoadingRecent(true);
@@ -347,6 +353,24 @@ export default function OrdersPage() {
     setSaving(false);
   }
 
+  async function handleDeleteOrder() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    setDeleteError(null);
+    const { error } = await supabase
+      .from("purchase_order")
+      .delete()
+      .eq("id", deleteTarget.id);
+    if (error) {
+      setDeleteError(error.message);
+      setDeleting(false);
+      return;
+    }
+    setDeleteTarget(null);
+    setDeleting(false);
+    fetchRecentOrders();
+  }
+
   return (
     <VerificationLayout uploadedFiles={uploadedFiles}>
       <h1 className="text-xl font-bold mb-6">New Order</h1>
@@ -550,7 +574,8 @@ export default function OrdersPage() {
                   <th className="pb-2 pr-4 font-medium">Date</th>
                   <th className="pb-2 pr-4 font-medium">Supplier</th>
                   <th className="pb-2 pr-4 font-medium">Lines</th>
-                  <th className="pb-2 font-medium">Files</th>
+                  <th className="pb-2 pr-4 font-medium">Files</th>
+                  <th className="pb-2 font-medium"></th>
                 </tr>
               </thead>
               <tbody>
@@ -565,7 +590,7 @@ export default function OrdersPage() {
                       {o.company_name}
                     </td>
                     <td className="py-2 pr-4 text-gray-600">{o.line_count}</td>
-                    <td className="py-2">
+                    <td className="py-2 pr-4">
                       <FileBadge
                         count={o.file_count}
                         onClick={() =>
@@ -590,6 +615,16 @@ export default function OrdersPage() {
                         </button>
                       )}
                     </td>
+                    <td className="py-2 text-right">
+                      <button
+                        type="button"
+                        onClick={() => setDeleteTarget(o)}
+                        className="text-gray-400 hover:text-red-600 text-sm"
+                        title="Delete order"
+                      >
+                        🗑
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -609,6 +644,33 @@ export default function OrdersPage() {
             fetchRecentOrders();
           }}
         />
+      )}
+
+      {/* Delete confirmation modal */}
+      {deleteTarget && (
+        <DeleteConfirmModal
+          title={`Delete order #${deleteTarget.id}?`}
+          details={[
+            { label: "Supplier", value: deleteTarget.company_name },
+            { label: "Date", value: deleteTarget.date },
+            { label: "Line items", value: String(deleteTarget.line_count) },
+          ]}
+          deleting={deleting}
+          onConfirm={handleDeleteOrder}
+          onCancel={() => {
+            setDeleteTarget(null);
+            setDeleteError(null);
+          }}
+        />
+      )}
+      {deleteError && (
+        <div className="mt-2">
+          <StatusMessage
+            type="error"
+            message={`Delete failed: ${deleteError}`}
+            onDismiss={() => setDeleteError(null)}
+          />
+        </div>
       )}
     </VerificationLayout>
   );

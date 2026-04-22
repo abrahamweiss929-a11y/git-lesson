@@ -12,6 +12,7 @@ import AiFieldCounter from "@/components/AiFieldCounter";
 import VerificationLayout from "@/components/VerificationLayout";
 import FileBadge from "@/components/FileBadge";
 import AttachmentModal from "@/components/AttachmentModal";
+import DeleteConfirmModal from "@/components/DeleteConfirmModal";
 
 interface ReceiptLineForm {
   key: string;
@@ -81,6 +82,11 @@ export default function ReceiptsPage() {
     id: number;
     label: string;
   } | null>(null);
+
+  // --- Delete state ---
+  const [deleteTarget, setDeleteTarget] = useState<RecentReceipt | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const fetchRecentReceipts = useCallback(async () => {
     setLoadingRecent(true);
@@ -353,6 +359,24 @@ export default function ReceiptsPage() {
     setSaving(false);
   }
 
+  async function handleDeleteReceipt() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    setDeleteError(null);
+    const { error } = await supabase
+      .from("receipt")
+      .delete()
+      .eq("id", deleteTarget.id);
+    if (error) {
+      setDeleteError(error.message);
+      setDeleting(false);
+      return;
+    }
+    setDeleteTarget(null);
+    setDeleting(false);
+    fetchRecentReceipts();
+  }
+
   return (
     <VerificationLayout uploadedFiles={uploadedFiles}>
       <h1 className="text-xl font-bold mb-6">New Receipt</h1>
@@ -569,7 +593,8 @@ export default function ReceiptsPage() {
                   <th className="pb-2 pr-4 font-medium">Date</th>
                   <th className="pb-2 pr-4 font-medium">Supplier</th>
                   <th className="pb-2 pr-4 font-medium">Lines</th>
-                  <th className="pb-2 font-medium">Files</th>
+                  <th className="pb-2 pr-4 font-medium">Files</th>
+                  <th className="pb-2 font-medium"></th>
                 </tr>
               </thead>
               <tbody>
@@ -584,7 +609,7 @@ export default function ReceiptsPage() {
                       {r.company_name}
                     </td>
                     <td className="py-2 pr-4 text-gray-600">{r.line_count}</td>
-                    <td className="py-2">
+                    <td className="py-2 pr-4">
                       <FileBadge
                         count={r.file_count}
                         onClick={() =>
@@ -609,6 +634,16 @@ export default function ReceiptsPage() {
                         </button>
                       )}
                     </td>
+                    <td className="py-2 text-right">
+                      <button
+                        type="button"
+                        onClick={() => setDeleteTarget(r)}
+                        className="text-gray-400 hover:text-red-600 text-sm"
+                        title="Delete receipt"
+                      >
+                        🗑
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -625,9 +660,36 @@ export default function ReceiptsPage() {
           label={modalTarget.label}
           onClose={() => {
             setModalTarget(null);
-            fetchRecentReceipts(); // refresh counts
+            fetchRecentReceipts();
           }}
         />
+      )}
+
+      {/* Delete confirmation modal */}
+      {deleteTarget && (
+        <DeleteConfirmModal
+          title={`Delete receipt #${deleteTarget.id}?`}
+          details={[
+            { label: "Supplier", value: deleteTarget.company_name },
+            { label: "Date", value: deleteTarget.date },
+            { label: "Line items", value: String(deleteTarget.line_count) },
+          ]}
+          deleting={deleting}
+          onConfirm={handleDeleteReceipt}
+          onCancel={() => {
+            setDeleteTarget(null);
+            setDeleteError(null);
+          }}
+        />
+      )}
+      {deleteError && (
+        <div className="mt-2">
+          <StatusMessage
+            type="error"
+            message={`Delete failed: ${deleteError}`}
+            onDismiss={() => setDeleteError(null)}
+          />
+        </div>
       )}
     </VerificationLayout>
   );
