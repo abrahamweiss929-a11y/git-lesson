@@ -13,6 +13,10 @@ import VerificationLayout from "@/components/VerificationLayout";
 import FileBadge from "@/components/FileBadge";
 import AttachmentModal from "@/components/AttachmentModal";
 import DeleteConfirmModal from "@/components/DeleteConfirmModal";
+import Card from "@/components/ui/Card";
+import Button from "@/components/ui/Button";
+import Input from "@/components/ui/Input";
+import Icon from "@/components/ui/Icon";
 
 interface OrderLineForm {
   key: string;
@@ -34,7 +38,6 @@ function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
-// v5: Recent order row with file count
 interface RecentOrder {
   id: number;
   date: string;
@@ -44,7 +47,6 @@ interface RecentOrder {
 }
 
 export default function OrdersPage() {
-  // --- v1 form state (unchanged defaults) ---
   const [companyId, setCompanyId] = useState<number | null>(null);
   const [date, setDate] = useState(todayISO());
   const [lines, setLines] = useState<OrderLineForm[]>([emptyLine()]);
@@ -60,9 +62,7 @@ export default function OrdersPage() {
   const [companyWarning, setCompanyWarning] = useState<{
     rawName: string;
   } | null>(null);
-  const [aiFilledFields, setAiFilledFields] = useState<Set<string>>(
-    new Set()
-  );
+  const [aiFilledFields, setAiFilledFields] = useState<Set<string>>(new Set());
   const [companyRefreshKey, setCompanyRefreshKey] = useState(0);
 
   // --- Document viewer state ---
@@ -117,7 +117,7 @@ export default function OrdersPage() {
     (lineCounts ?? []).forEach((row: { purchase_order_id: number }) => {
       lineMap.set(
         row.purchase_order_id,
-        (lineMap.get(row.purchase_order_id) ?? 0) + 1
+        (lineMap.get(row.purchase_order_id) ?? 0) + 1,
       );
     });
 
@@ -125,13 +125,16 @@ export default function OrdersPage() {
     (fileCounts ?? []).forEach((row: { purchase_order_id: number }) => {
       fileMap.set(
         row.purchase_order_id,
-        (fileMap.get(row.purchase_order_id) ?? 0) + 1
+        (fileMap.get(row.purchase_order_id) ?? 0) + 1,
       );
     });
 
     const rows: RecentOrder[] = orders.map(
-      (o: { id: number; date: string; company: { name: string } | { name: string }[] | null }) => {
-        // Supabase types the joined relation as an array; FK points to a single row.
+      (o: {
+        id: number;
+        date: string;
+        company: { name: string } | { name: string }[] | null;
+      }) => {
         const companyName = Array.isArray(o.company)
           ? (o.company[0]?.name ?? "Unknown")
           : (o.company?.name ?? "Unknown");
@@ -142,7 +145,7 @@ export default function OrdersPage() {
           line_count: lineMap.get(o.id) ?? 0,
           file_count: fileMap.get(o.id) ?? 0,
         };
-      }
+      },
     );
 
     setRecentOrders(rows);
@@ -160,13 +163,6 @@ export default function OrdersPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // --- Helpers for AI highlighting ---
-  function aiFieldClass(fieldId: string): string {
-    return aiFilledFields.has(fieldId)
-      ? "bg-[#FEF9E7] transition-colors duration-300"
-      : "";
-  }
-
   function handleAiFocus(fieldId: string) {
     setAiFilledFields((prev) => {
       if (!prev.has(fieldId)) return prev;
@@ -176,10 +172,9 @@ export default function OrdersPage() {
     });
   }
 
-  // --- Line item management ---
   function updateLine(key: string, field: keyof OrderLineForm, value: string) {
     setLines((prev) =>
-      prev.map((l) => (l.key === key ? { ...l, [field]: value } : l))
+      prev.map((l) => (l.key === key ? { ...l, [field]: value } : l)),
     );
     setAiFilledFields((prev) => {
       const id = `line:${key}:${field}`;
@@ -201,12 +196,10 @@ export default function OrdersPage() {
     });
   }
 
-  // --- AI extraction callback ---
   function handleExtracted(result: ExtractDocumentResponse) {
     setExtractionResult(result);
     const newAiFields = new Set<string>();
 
-    // Company
     if (result.company_match) {
       setCompanyId(result.company_match.id);
       newAiFields.add("company");
@@ -215,13 +208,11 @@ export default function OrdersPage() {
       setCompanyWarning({ rawName: result.company_name_raw });
     }
 
-    // Date
     if (result.date) {
       setDate(result.date);
       newAiFields.add("date");
     }
 
-    // Line items
     if (result.line_items.length > 0) {
       const newLines: OrderLineForm[] = result.line_items.map((item) => {
         const key = crypto.randomUUID();
@@ -236,9 +227,7 @@ export default function OrdersPage() {
           quantity_boxes:
             item.quantity_boxes !== 0 ? String(item.quantity_boxes) : "",
           price:
-            item.price != null && item.price !== 0
-              ? String(item.price)
-              : "",
+            item.price != null && item.price !== 0 ? String(item.price) : "",
         };
       });
       setLines(newLines);
@@ -247,7 +236,6 @@ export default function OrdersPage() {
     setAiFilledFields(newAiFields);
   }
 
-  // --- Company match banner actions ---
   async function handleAddCompany(name: string) {
     const { data, error } = await supabase
       .from("company")
@@ -270,13 +258,12 @@ export default function OrdersPage() {
     });
   }
 
-  // --- Form submission (v1 logic + v5 source document linking) ---
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!companyId) return;
 
     const validLines = lines.filter(
-      (l) => l.item_number.trim() && l.quantity_boxes.trim()
+      (l) => l.item_number.trim() && l.quantity_boxes.trim(),
     );
     if (validLines.length === 0) return;
 
@@ -303,7 +290,7 @@ export default function OrdersPage() {
           item_number: l.item_number.trim(),
           quantity_boxes: parseInt(l.quantity_boxes),
           price: l.price.trim() ? parseFloat(l.price) : null,
-        }))
+        })),
       );
 
     if (linesErr) {
@@ -315,7 +302,6 @@ export default function OrdersPage() {
       return;
     }
 
-    // v5: Link source documents to order
     if (sourceDocumentIds.length > 0) {
       const { error: linkErr } = await supabase
         .from("purchase_order_source_document")
@@ -323,7 +309,7 @@ export default function OrdersPage() {
           sourceDocumentIds.map((docId) => ({
             purchase_order_id: order.id,
             source_document_id: docId,
-          }))
+          })),
         );
 
       if (linkErr) {
@@ -341,14 +327,12 @@ export default function OrdersPage() {
     setCompanyId(null);
     setDate(todayISO());
     setLines([emptyLine()]);
-    // Reset AI state
     setExtractionResult(null);
     setCompanyWarning(null);
     setAiFilledFields(new Set());
     uploadedFiles.forEach((f) => URL.revokeObjectURL(f.objectUrl));
     setUploadedFiles([]);
     setSourceDocumentIds([]);
-    // Refresh recent orders
     fetchRecentOrders();
     setSaving(false);
   }
@@ -373,8 +357,6 @@ export default function OrdersPage() {
 
   return (
     <VerificationLayout uploadedFiles={uploadedFiles}>
-      <h1 className="text-xl font-bold mb-6">New Order</h1>
-
       {status && (
         <div className="mb-4">
           <StatusMessage
@@ -385,8 +367,7 @@ export default function OrdersPage() {
         </div>
       )}
 
-      {/* Document upload widget */}
-      <div className="mb-4">
+      <div className="mb-5">
         <DocumentUpload
           onExtracted={handleExtracted}
           onFilesReady={setUploadedFiles}
@@ -396,16 +377,8 @@ export default function OrdersPage() {
         />
       </div>
 
-      {/* AI field counter */}
-      {aiFilledFields.size > 0 && (
-        <div className="mb-4">
-          <AiFieldCounter count={aiFilledFields.size} />
-        </div>
-      )}
-
-      {/* Company match warning */}
       {companyWarning && (
-        <div className="mb-4">
+        <div className="mb-5">
           <CompanyMatchBanner
             rawName={companyWarning.rawName}
             onAddNew={handleAddCompany}
@@ -415,225 +388,274 @@ export default function OrdersPage() {
         </div>
       )}
 
-      {/* Confidence notes from AI */}
       {extractionResult?.confidence_notes && (
-        <div className="mb-4 rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
-          &#8505;&#65039; AI noted: {extractionResult.confidence_notes}
+        <div className="mb-5 rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900 flex items-start gap-3">
+          <div className="w-7 h-7 rounded-lg bg-sky-500/10 text-sky-600 flex items-center justify-center shrink-0">
+            <Icon name="info" size={14} />
+          </div>
+          <div className="flex-1">
+            <span className="font-semibold">AI noted:</span>{" "}
+            {extractionResult.confidence_notes}
+          </div>
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-6">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <CompanySelect
-            value={companyId}
-            onChange={(id) => {
-              setCompanyId(id);
-              setAiFilledFields((prev) => {
-                if (!prev.has("company")) return prev;
-                const next = new Set(prev);
-                next.delete("company");
-                return next;
-              });
-              setCompanyWarning(null);
-            }}
-            refreshKey={companyRefreshKey}
-            className={aiFieldClass("company")}
-          />
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Date
-            </label>
-            <input
+      <Card>
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <CompanySelect
+              value={companyId}
+              onChange={(id) => {
+                setCompanyId(id);
+                handleAiFocus("company");
+                setCompanyWarning(null);
+              }}
+              refreshKey={companyRefreshKey}
+            />
+            <Input
+              label="Date"
               type="date"
               value={date}
               onChange={(e) => {
                 setDate(e.target.value);
-                setAiFilledFields((prev) => {
-                  if (!prev.has("date")) return prev;
-                  const next = new Set(prev);
-                  next.delete("date");
-                  return next;
-                });
+                handleAiFocus("date");
               }}
               onFocus={() => handleAiFocus("date")}
-              className={`w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none ${aiFieldClass("date")}`}
+              aiFilled={aiFilledFields.has("date")}
             />
           </div>
-        </div>
 
-        <div>
-          <h2 className="text-sm font-medium text-gray-700 mb-3">
-            Line Items
-          </h2>
-          <div className="space-y-3">
-            {lines.map((line) => (
-              <div
-                key={line.key}
-                className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 items-end"
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-sm font-medium text-slate-700">
+                Line items
+              </label>
+              <button
+                type="button"
+                onClick={() => setLines([...lines, emptyLine()])}
+                className="text-xs font-semibold text-teal-700 hover:text-teal-800 flex items-center gap-1 transition-colors"
               >
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">
-                    Item Number
-                  </label>
-                  <input
-                    type="text"
-                    value={line.item_number}
-                    onChange={(e) =>
-                      updateLine(line.key, "item_number", e.target.value)
-                    }
-                    onFocus={() =>
-                      handleAiFocus(`line:${line.key}:item_number`)
-                    }
-                    placeholder="Item #"
-                    className={`w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none ${aiFieldClass(`line:${line.key}:item_number`)}`}
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">
-                    Qty (boxes)
-                  </label>
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    value={line.quantity_boxes}
-                    onChange={(e) =>
-                      updateLine(line.key, "quantity_boxes", e.target.value)
-                    }
-                    onFocus={() =>
-                      handleAiFocus(`line:${line.key}:quantity_boxes`)
-                    }
-                    placeholder="0"
-                    min="1"
-                    className={`w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none ${aiFieldClass(`line:${line.key}:quantity_boxes`)}`}
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">
-                    Price
-                  </label>
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    value={line.price}
-                    onChange={(e) =>
-                      updateLine(line.key, "price", e.target.value)
-                    }
-                    onFocus={() =>
-                      handleAiFocus(`line:${line.key}:price`)
-                    }
-                    placeholder="0.00"
-                    step="0.01"
-                    min="0"
-                    className={`w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none ${aiFieldClass(`line:${line.key}:price`)}`}
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => removeLine(line.key)}
-                  disabled={lines.length <= 1}
-                  className="rounded-md px-2 py-2 text-sm text-red-600 hover:text-red-800 hover:bg-red-50 disabled:opacity-30 disabled:hover:bg-transparent"
-                >
-                  Remove
-                </button>
+                <Icon name="plus" size={12} /> Add line
+              </button>
+            </div>
+            <div className="rounded-xl border border-slate-200 overflow-hidden">
+              <div className="grid grid-cols-[1fr_90px_100px_36px] gap-2 px-4 py-2 bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                <div>Item #</div>
+                <div className="text-right">Qty</div>
+                <div className="text-right">Price</div>
+                <div />
               </div>
-            ))}
-          </div>
-          <button
-            type="button"
-            onClick={() => setLines([...lines, emptyLine()])}
-            className="mt-3 rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            + Add Line
-          </button>
-        </div>
-
-        <button
-          type="submit"
-          disabled={saving || !companyId}
-          className="rounded-md bg-blue-600 px-6 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-        >
-          {saving ? "Saving..." : "Save Order"}
-        </button>
-      </form>
-
-      {/* v5: Recent Orders list */}
-      <div className="mt-10 border-t pt-6">
-        <h2 className="text-lg font-semibold text-gray-800 mb-4">
-          Recent Orders
-        </h2>
-        {loadingRecent ? (
-          <p className="text-sm text-gray-500">Loading...</p>
-        ) : recentOrders.length === 0 ? (
-          <p className="text-sm text-gray-500">No orders yet.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-gray-500">
-                  <th className="pb-2 pr-4 font-medium">ID</th>
-                  <th className="pb-2 pr-4 font-medium">Date</th>
-                  <th className="pb-2 pr-4 font-medium">Supplier</th>
-                  <th className="pb-2 pr-4 font-medium">Lines</th>
-                  <th className="pb-2 pr-4 font-medium">Files</th>
-                  <th className="pb-2 font-medium"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentOrders.map((o) => (
-                  <tr
-                    key={o.id}
-                    className="border-b border-gray-100 hover:bg-gray-50"
-                  >
-                    <td className="py-2 pr-4 text-gray-600">#{o.id}</td>
-                    <td className="py-2 pr-4 text-gray-700">{o.date}</td>
-                    <td className="py-2 pr-4 text-gray-700">
-                      {o.company_name}
-                    </td>
-                    <td className="py-2 pr-4 text-gray-600">{o.line_count}</td>
-                    <td className="py-2 pr-4">
-                      <FileBadge
-                        count={o.file_count}
-                        onClick={() =>
-                          setModalTarget({
-                            id: o.id,
-                            label: `Order #${o.id}`,
-                          })
+              <div className="divide-y divide-slate-100">
+                {lines.map((line) => {
+                  const itemKey = `line:${line.key}:item_number`;
+                  const qtyKey = `line:${line.key}:quantity_boxes`;
+                  const priceKey = `line:${line.key}:price`;
+                  const anyAi =
+                    aiFilledFields.has(itemKey) ||
+                    aiFilledFields.has(qtyKey) ||
+                    aiFilledFields.has(priceKey);
+                  return (
+                    <div
+                      key={line.key}
+                      className={`grid grid-cols-[1fr_90px_100px_36px] gap-2 items-center px-4 py-2.5 ${anyAi ? "bg-amber-50/40" : "bg-white"}`}
+                    >
+                      <input
+                        type="text"
+                        value={line.item_number}
+                        onChange={(e) =>
+                          updateLine(line.key, "item_number", e.target.value)
                         }
+                        onFocus={() => handleAiFocus(itemKey)}
+                        placeholder="Item #"
+                        className={`w-full rounded-md border px-2.5 py-1.5 text-sm text-slate-900 font-mono focus:outline-none transition-colors ${
+                          aiFilledFields.has(itemKey)
+                            ? "border-amber-200 bg-amber-50/80 focus:border-amber-400"
+                            : "border-slate-200 bg-white focus:border-teal-500"
+                        }`}
                       />
-                      {o.file_count === 0 && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setModalTarget({
-                              id: o.id,
-                              label: `Order #${o.id}`,
-                            })
-                          }
-                          className="text-xs text-gray-400 hover:text-blue-600"
-                        >
-                          Attach
-                        </button>
-                      )}
-                    </td>
-                    <td className="py-2 text-right">
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        value={line.quantity_boxes}
+                        onChange={(e) =>
+                          updateLine(
+                            line.key,
+                            "quantity_boxes",
+                            e.target.value,
+                          )
+                        }
+                        onFocus={() => handleAiFocus(qtyKey)}
+                        placeholder="0"
+                        min="1"
+                        className={`w-full rounded-md border px-2.5 py-1.5 text-sm text-slate-900 text-right tabular-nums focus:outline-none transition-colors ${
+                          aiFilledFields.has(qtyKey)
+                            ? "border-amber-200 bg-amber-50/80 focus:border-amber-400"
+                            : "border-slate-200 bg-white focus:border-teal-500"
+                        }`}
+                      />
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        value={line.price}
+                        onChange={(e) =>
+                          updateLine(line.key, "price", e.target.value)
+                        }
+                        onFocus={() => handleAiFocus(priceKey)}
+                        placeholder="0.00"
+                        step="0.01"
+                        min="0"
+                        className={`w-full rounded-md border px-2.5 py-1.5 text-sm text-slate-900 text-right tabular-nums focus:outline-none transition-colors ${
+                          aiFilledFields.has(priceKey)
+                            ? "border-amber-200 bg-amber-50/80 focus:border-amber-400"
+                            : "border-slate-200 bg-white focus:border-teal-500"
+                        }`}
+                      />
                       <button
                         type="button"
-                        onClick={() => setDeleteTarget(o)}
-                        className="text-gray-400 hover:text-red-600 text-sm"
-                        title="Delete order"
+                        onClick={() => removeLine(line.key)}
+                        disabled={lines.length <= 1}
+                        aria-label="Remove line"
+                        className="rounded-md p-1.5 text-slate-300 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-300 transition-colors"
                       >
-                        🗑
+                        <Icon name="trash" size={14} />
                       </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    </div>
+                  );
+                })}
+              </div>
+              {aiFilledFields.size > 0 && (
+                <div className="px-4 py-3 bg-slate-50/70 border-t border-slate-200">
+                  <AiFieldCounter count={aiFilledFields.size} />
+                </div>
+              )}
+            </div>
           </div>
+
+          <div className="flex gap-3 justify-end pt-1">
+            <Button type="submit" loading={saving} disabled={!companyId} icon="check">
+              Save Order
+            </Button>
+          </div>
+        </form>
+      </Card>
+
+      {/* Recent Orders list */}
+      <div className="mt-10">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-base font-semibold text-slate-900">
+            Recent orders
+          </h2>
+          {recentOrders.length > 0 && (
+            <span className="text-xs text-slate-500 tabular-nums">
+              {recentOrders.length} shown
+            </span>
+          )}
+        </div>
+        {loadingRecent ? (
+          <Card className="text-sm text-slate-500">Loading…</Card>
+        ) : recentOrders.length === 0 ? (
+          <Card className="text-sm text-slate-500">No orders yet.</Card>
+        ) : (
+          <Card padded={false} className="overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50/70 text-slate-500 text-xs border-b border-slate-200">
+                  <tr className="text-left">
+                    <th className="font-semibold uppercase tracking-wider px-5 py-3">
+                      ID
+                    </th>
+                    <th className="font-semibold uppercase tracking-wider px-5 py-3">
+                      Date
+                    </th>
+                    <th className="font-semibold uppercase tracking-wider px-5 py-3">
+                      Supplier
+                    </th>
+                    <th className="font-semibold uppercase tracking-wider px-5 py-3 text-right">
+                      Lines
+                    </th>
+                    <th className="font-semibold uppercase tracking-wider px-5 py-3">
+                      Files
+                    </th>
+                    <th className="px-3" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {recentOrders.map((o) => (
+                    <tr
+                      key={o.id}
+                      className="hover:bg-slate-50/60 group transition-colors"
+                    >
+                      <td className="px-5 py-3 font-mono text-xs text-slate-500">
+                        #{o.id}
+                      </td>
+                      <td className="px-5 py-3 text-slate-700 tabular-nums">
+                        {o.date}
+                      </td>
+                      <td className="px-5 py-3">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-md bg-gradient-to-br from-teal-400 to-teal-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0">
+                            {o.company_name
+                              .split(/\s+/)
+                              .filter(Boolean)
+                              .slice(0, 2)
+                              .map((w) => w[0])
+                              .join("")
+                              .toUpperCase() || "—"}
+                          </div>
+                          <span className="font-medium text-slate-900">
+                            {o.company_name}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-5 py-3 text-right tabular-nums text-slate-700">
+                        {o.line_count}
+                      </td>
+                      <td className="px-5 py-3">
+                        {o.file_count > 0 ? (
+                          <FileBadge
+                            count={o.file_count}
+                            onClick={() =>
+                              setModalTarget({
+                                id: o.id,
+                                label: `Order #${o.id}`,
+                              })
+                            }
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setModalTarget({
+                                id: o.id,
+                                label: `Order #${o.id}`,
+                              })
+                            }
+                            className="text-xs font-medium text-slate-400 hover:text-teal-700 transition-colors"
+                          >
+                            Attach
+                          </button>
+                        )}
+                      </td>
+                      <td className="px-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => setDeleteTarget(o)}
+                          className="rounded-lg p-1.5 text-slate-300 hover:bg-rose-50 hover:text-rose-600 transition-colors opacity-0 group-hover:opacity-100"
+                          title="Delete order"
+                          aria-label={`Delete order ${o.id}`}
+                        >
+                          <Icon name="trash" size={14} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
         )}
       </div>
 
-      {/* v5: Attachment modal */}
       {modalTarget && (
         <AttachmentModal
           targetId={modalTarget.id}
@@ -646,7 +668,6 @@ export default function OrdersPage() {
         />
       )}
 
-      {/* Delete confirmation modal */}
       {deleteTarget && (
         <DeleteConfirmModal
           title={`Delete order #${deleteTarget.id}?`}
