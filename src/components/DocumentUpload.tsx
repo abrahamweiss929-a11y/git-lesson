@@ -255,9 +255,10 @@ export default function DocumentUpload({
     .reduce((sum, f) => sum + f.result!.line_items.length, 0);
 
   return (
-    <div className="rounded-md border border-dashed border-gray-300 bg-white p-4">
-      <p className="text-sm font-medium text-gray-700 mb-3">
-        Upload Document{files.length !== 1 ? "s" : ""} (Optional)
+    <div className="rounded-xl border border-dashed border-slate-300 bg-gradient-to-br from-teal-50/50 via-white to-amber-50/30 p-5">
+      <p className="text-sm font-semibold text-slate-800 mb-3">
+        Upload Document{files.length !== 1 ? "s" : ""}{" "}
+        <span className="font-normal text-slate-500">(optional)</span>
       </p>
 
       <div className="flex flex-wrap items-center gap-3">
@@ -268,28 +269,31 @@ export default function DocumentUpload({
           multiple
           onChange={handleFileChange}
           disabled={disabled || busy}
-          className="text-sm text-gray-600 file:mr-3 file:rounded-md file:border-0 file:bg-gray-100 file:px-3 file:py-2 file:text-sm file:font-medium file:text-gray-700 hover:file:bg-gray-200"
+          className="text-sm text-slate-600 file:mr-3 file:rounded-lg file:border file:border-slate-200 file:bg-white file:px-3 file:py-2 file:text-xs file:font-semibold file:text-slate-700 hover:file:bg-slate-50 file:transition-colors file:cursor-pointer"
         />
         <button
           type="button"
           onClick={handleExtract}
           disabled={!hasFiles || busy || disabled}
-          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          className="inline-flex items-center justify-center gap-2 font-semibold rounded-lg px-4 py-2.5 text-sm h-10 bg-gradient-to-br from-teal-600 to-teal-700 text-white shadow-[0_4px_14px_-2px_rgba(13,148,136,0.4)] hover:shadow-[0_6px_20px_-4px_rgba(13,148,136,0.5)] hover:-translate-y-px transition-all disabled:opacity-50 disabled:pointer-events-none"
         >
           {busy ? (
             <span className="flex items-center gap-2">
               <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-              Extracting...
+              Extracting…
             </span>
           ) : (
-            "Extract with AI"
+            <>
+              <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3l1.8 5.4L19 10l-5.2 1.6L12 17l-1.8-5.4L5 10l5.2-1.6z"/><path d="M19 17l.6 1.8L21 19l-1.4.4L19 21l-.6-1.6L17 19l1.4-.2z"/></svg>
+              Extract with AI
+            </>
           )}
         </button>
         {allDone && (
           <button
             type="button"
             onClick={handleReset}
-            className="text-sm text-gray-500 hover:text-gray-700"
+            className="text-sm text-slate-500 hover:text-slate-700 font-medium"
           >
             Clear
           </button>
@@ -298,39 +302,39 @@ export default function DocumentUpload({
 
       {/* Per-file status list (multi-file only) */}
       {files.length > 1 && (
-        <ul className="mt-3 space-y-1">
+        <ul className="mt-3 space-y-1.5">
           {files.map((entry) => (
             <li key={entry.id} className="flex items-center gap-2 text-sm">
               {entry.status === "pending" && (
-                <span className="text-gray-400">&#9679;</span>
+                <span className="w-2 h-2 rounded-full bg-slate-300" aria-hidden="true" />
               )}
               {(entry.status === "reading" ||
                 entry.status === "extracting") && (
-                <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
+                <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-teal-500 border-t-transparent" />
               )}
               {entry.status === "done" && !entry.warningMessage && (
-                <span className="text-green-600">&#10003;</span>
+                <span className="text-emerald-600" aria-hidden="true">✓</span>
               )}
               {entry.status === "done" && entry.warningMessage && (
-                <span className="text-amber-500">&#9888;</span>
+                <span className="text-amber-500" aria-hidden="true">⚠</span>
               )}
               {entry.status === "error" && (
-                <span className="text-red-500">&#10007;</span>
+                <span className="text-rose-500" aria-hidden="true">✕</span>
               )}
               <span
                 className={
                   entry.status === "error"
-                    ? "text-red-600"
+                    ? "text-rose-700"
                     : entry.warningMessage
-                      ? "text-amber-600"
+                      ? "text-amber-700"
                       : entry.status === "done"
-                        ? "text-green-700"
-                        : "text-gray-600"
+                        ? "text-emerald-700"
+                        : "text-slate-600"
                 }
               >
-                {entry.file.name}
-                {entry.status === "reading" && " — Reading..."}
-                {entry.status === "extracting" && " — Extracting..."}
+                <span className="font-medium">{entry.file.name}</span>
+                {entry.status === "reading" && " — Reading…"}
+                {entry.status === "extracting" && " — Extracting…"}
                 {entry.status === "done" &&
                   !entry.warningMessage &&
                   entry.result &&
@@ -347,43 +351,47 @@ export default function DocumentUpload({
 
       {/* Single-file status messages */}
       {files.length === 1 && files[0].status === "done" && !files[0].warningMessage && (
-        <p className="mt-2 text-sm text-green-700">
-          &#10003; Data extracted from {files[0].file.name}
+        <p className="mt-3 text-sm text-emerald-700 font-medium">
+          ✓ Data extracted from {files[0].file.name}
         </p>
       )}
 
       {files.length === 1 && files[0].warningMessage && (
-        <p className="mt-2 text-sm text-amber-600">
-          &#9888; {files[0].warningMessage}
+        <p className="mt-3 text-sm text-amber-700 font-medium">
+          ⚠ {files[0].warningMessage}
         </p>
       )}
 
       {files.length === 1 &&
         files[0].status === "error" &&
         files[0].errorMessage && (
-          <p className="mt-2 text-sm text-red-600">
+          <p className="mt-3 text-sm text-rose-700 font-medium">
             {files[0].errorMessage}
           </p>
         )}
 
       {/* Multi-file summary */}
       {files.length > 1 && allDone && doneCount > 0 && (
-        <div className="mt-2">
+        <div className="mt-3 space-y-1">
           {totalItems > 0 && (
-            <p className="text-sm text-green-700">
-              &#10003; Extracted {totalItems} item{totalItems !== 1 ? "s" : ""}{" "}
-              from {doneCount - warningCount} file
+            <p className="text-sm text-emerald-700 font-medium">
+              ✓ Extracted {totalItems} item{totalItems !== 1 ? "s" : ""} from{" "}
+              {doneCount - warningCount} file
               {doneCount - warningCount !== 1 ? "s" : ""}
             </p>
           )}
           {warningCount > 0 && (
-            <p className="text-sm text-amber-600">
-              &#9888; {warningCount} file{warningCount !== 1 ? "s" : ""} saved
-              but extraction failed — fill data manually
+            <p className="text-sm text-amber-700 font-medium">
+              ⚠ {warningCount} file{warningCount !== 1 ? "s" : ""} saved but
+              extraction failed — fill data manually
             </p>
           )}
         </div>
       )}
+
+      <div className="mt-4 pt-3 border-t border-slate-200/70 text-xs text-slate-500">
+        JPG, PNG, WebP, PDF · max 25 MB
+      </div>
     </div>
   );
 }

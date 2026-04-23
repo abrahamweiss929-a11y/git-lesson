@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Icon from "@/components/ui/Icon";
 
 interface CollapsibleSectionProps {
   title: string;
@@ -16,20 +17,24 @@ export default function CollapsibleSection({
   const [open, setOpen] = useState(defaultOpen);
 
   return (
-    <div className="border border-gray-200 rounded-md bg-white">
+    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center gap-2 px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50"
+        aria-expanded={open}
+        className="w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-50 transition-colors"
       >
         <span
-          className={`inline-block transition-transform ${open ? "rotate-90" : ""}`}
+          className={`inline-flex text-slate-400 transition-transform ${open ? "rotate-90" : ""}`}
+          aria-hidden="true"
         >
-          ▶
+          <Icon name="chevronRight" size={14} />
         </span>
         {title}
       </button>
-      {open && <div className="px-4 pb-4">{children}</div>}
+      {open && (
+        <div className="px-4 pb-4 pt-1 border-t border-slate-100">{children}</div>
+      )}
     </div>
   );
 }

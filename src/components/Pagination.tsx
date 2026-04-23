@@ -1,5 +1,7 @@
 "use client";
 
+import Icon from "@/components/ui/Icon";
+
 interface PaginationProps {
   currentPage: number;
   totalPages: number;
@@ -21,29 +23,33 @@ export default function Pagination({
   const to = Math.min(currentPage * pageSize, totalCount);
 
   return (
-    <div className="flex items-center justify-between mt-4 text-sm text-gray-600">
-      <span>
-        Showing {from}–{to} of {totalCount}
+    <div className="flex items-center justify-between mt-4 text-sm text-slate-600">
+      <span className="tabular-nums">
+        Showing <span className="font-semibold text-slate-900">{from}</span>–
+        <span className="font-semibold text-slate-900">{to}</span> of{" "}
+        <span className="font-semibold text-slate-900">{totalCount}</span>
       </span>
       <div className="flex items-center gap-2">
         <button
           type="button"
           onClick={() => onPageChange(currentPage - 1)}
           disabled={currentPage <= 1}
-          className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all inline-flex items-center gap-1"
         >
+          <Icon name="chevronLeft" size={14} />
           Prev
         </button>
-        <span>
+        <span className="text-xs text-slate-500 tabular-nums px-1">
           Page {currentPage} of {totalPages}
         </span>
         <button
           type="button"
           onClick={() => onPageChange(currentPage + 1)}
           disabled={currentPage >= totalPages}
-          className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all inline-flex items-center gap-1"
         >
           Next
+          <Icon name="chevronRight" size={14} />
         </button>
       </div>
     </div>

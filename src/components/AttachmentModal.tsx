@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
+import Button from "@/components/ui/Button";
+import Icon from "@/components/ui/Icon";
+import Badge from "@/components/ui/Badge";
 
 interface AttachedFile {
   id: number;
@@ -41,19 +44,6 @@ function formatDate(iso: string): string {
   });
 }
 
-function uploadViaBadge(via: string): { label: string; className: string } {
-  if (via.includes("extraction")) {
-    return {
-      label: "AI extraction",
-      className: "bg-blue-100 text-blue-700",
-    };
-  }
-  return {
-    label: "Manual attach",
-    className: "bg-gray-100 text-gray-600",
-  };
-}
-
 export default function AttachmentModal({
   targetId,
   context,
@@ -79,7 +69,7 @@ export default function AttachmentModal({
         context === "receipt" ? "receipt_id" : "purchase_order_id";
 
       const res = await fetch(
-        `/api/document/list?table=${joinTable}&column=${joinColumn}&target_id=${targetId}`
+        `/api/document/list?table=${joinTable}&column=${joinColumn}&target_id=${targetId}`,
       );
       if (!res.ok) throw new Error("Failed to load files");
       const data = await res.json();
@@ -102,7 +92,6 @@ export default function AttachmentModal({
 
     const file = fileInput.files[0];
 
-    // Client-side validation
     if (!ACCEPTED_TYPES.includes(file.type)) {
       setError("Unsupported file type. Allowed: JPG, PNG, WebP, PDF.");
       return;
@@ -143,7 +132,6 @@ export default function AttachmentModal({
         throw new Error(data.error || "Upload failed");
       }
 
-      // Refresh file list
       fileInput.value = "";
       await fetchFiles();
     } catch (err) {
@@ -154,7 +142,13 @@ export default function AttachmentModal({
   }
 
   async function handleDetach(docId: number) {
-    if (!confirm("Remove this file from this " + (context === "receipt" ? "receipt" : "order") + "? The file itself will remain in storage.")) {
+    if (
+      !confirm(
+        "Remove this file from this " +
+          (context === "receipt" ? "receipt" : "order") +
+          "? The file itself will remain in storage.",
+      )
+    ) {
       return;
     }
 
@@ -182,80 +176,84 @@ export default function AttachmentModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="mx-4 w-full max-w-lg rounded-lg bg-white shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm">
+      <div className="mx-4 w-full max-w-lg rounded-2xl bg-white shadow-xl overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between border-b px-5 py-4">
-          <h2 className="text-base font-semibold text-gray-800">
-            Attached files for {label}
+        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+          <h2 className="text-base font-bold text-slate-900">
+            Attached files ·{" "}
+            <span className="text-slate-500 font-medium">{label}</span>
           </h2>
           <button
             onClick={onClose}
-            className="rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+            aria-label="Close"
+            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
           >
-            &#10005;
+            <Icon name="x" size={16} />
           </button>
         </div>
 
         {/* Body */}
         <div className="max-h-80 overflow-y-auto px-5 py-4">
           {loading && (
-            <p className="text-sm text-gray-500">Loading files...</p>
+            <p className="text-sm text-slate-500">Loading files…</p>
           )}
 
           {error && (
-            <p className="mb-3 text-sm text-red-600">{error}</p>
+            <p className="mb-3 rounded-lg bg-rose-50 border border-rose-200 px-3 py-2 text-sm text-rose-700">
+              {error}
+            </p>
           )}
 
           {!loading && files.length === 0 && (
-            <p className="text-sm text-gray-500">No files attached yet.</p>
+            <p className="text-sm text-slate-500">No files attached yet.</p>
           )}
 
           {files.length > 0 && (
-            <ul className="space-y-3">
+            <ul className="space-y-2">
               {files.map((f) => {
-                const badge = uploadViaBadge(f.uploaded_via);
+                const isAi = f.uploaded_via.includes("extraction");
                 return (
                   <li
                     key={f.id}
-                    className="flex items-center justify-between rounded-md border border-gray-200 p-3"
+                    className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-3 hover:border-slate-300 transition-colors"
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-gray-800">
+                      <p className="truncate text-sm font-medium text-slate-900">
                         {f.original_filename}
                       </p>
-                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
-                        <span>{formatBytes(f.size_bytes)}</span>
-                        <span>&middot;</span>
-                        <span>{formatDate(f.uploaded_at)}</span>
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-xs font-medium ${badge.className}`}
-                        >
-                          {badge.label}
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                        <span className="tabular-nums">
+                          {formatBytes(f.size_bytes)}
                         </span>
+                        <span aria-hidden="true">·</span>
+                        <span>{formatDate(f.uploaded_at)}</span>
+                        <Badge color={isAi ? "amber" : "slate"}>
+                          {isAi ? "AI extraction" : "Manual attach"}
+                        </Badge>
                       </div>
                     </div>
-                    <div className="ml-3 flex items-center gap-2">
+                    <div className="ml-3 flex items-center gap-1">
                       <a
                         href={`/api/document/${f.id}/view`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-blue-600"
+                        className="rounded-lg p-1.5 text-slate-500 hover:bg-teal-50 hover:text-teal-700 transition-colors"
                         title="View file"
                       >
-                        &#128065;
+                        <Icon name="arrow" size={14} />
                       </a>
                       <button
                         type="button"
                         onClick={() => handleDetach(f.id)}
                         disabled={detaching === f.id}
-                        className="rounded-md p-1.5 text-gray-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                        className="rounded-lg p-1.5 text-slate-500 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50 transition-colors"
                         title={`Remove from this ${context}`}
                       >
                         {detaching === f.id ? (
-                          <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-red-400 border-t-transparent" />
+                          <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-rose-400 border-t-transparent" />
                         ) : (
-                          "\u2716"
+                          <Icon name="trash" size={14} />
                         )}
                       </button>
                     </div>
@@ -267,8 +265,8 @@ export default function AttachmentModal({
         </div>
 
         {/* Upload section */}
-        <div className="border-t px-5 py-4">
-          <p className="mb-2 text-sm font-medium text-gray-700">
+        <div className="border-t border-slate-200 bg-slate-50/40 px-5 py-4">
+          <p className="mb-2 text-sm font-semibold text-slate-700">
             Attach new file
           </p>
           <div className="flex items-center gap-3">
@@ -277,16 +275,11 @@ export default function AttachmentModal({
               type="file"
               accept={ACCEPT_STRING}
               disabled={uploading}
-              className="text-sm text-gray-600 file:mr-3 file:rounded-md file:border-0 file:bg-gray-100 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-gray-700 hover:file:bg-gray-200"
+              className="text-sm text-slate-600 file:mr-3 file:rounded-lg file:border file:border-slate-200 file:bg-white file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-slate-700 hover:file:bg-slate-50 file:transition-colors file:cursor-pointer flex-1 min-w-0"
             />
-            <button
-              type="button"
-              onClick={handleUpload}
-              disabled={uploading}
-              className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-            >
-              {uploading ? "Uploading..." : "Upload"}
-            </button>
+            <Button onClick={handleUpload} loading={uploading} size="sm">
+              Upload
+            </Button>
           </div>
         </div>
       </div>
