@@ -39,7 +39,6 @@ export default function CompanySelect({
 
   useEffect(() => {
     fetchCompanies();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchCompanies, refreshKey]);
 
   function handleSelectChange(e: React.ChangeEvent<HTMLSelectElement>) {
