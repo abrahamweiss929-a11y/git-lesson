@@ -7,17 +7,15 @@ import { supabase } from "@/lib/supabase";
 import type { Item, ItemSupplierWithCompany } from "@/lib/types";
 import CompanySelect from "@/components/CompanySelect";
 import StatusMessage from "@/components/StatusMessage";
+import Button from "@/components/ui/Button";
+import Input from "@/components/ui/Input";
+import Textarea from "@/components/ui/Textarea";
+import Icon from "@/components/ui/Icon";
 
-/* ------------------------------------------------------------------ */
-/*  Helper: escape % and _ for ilike exact (case-insensitive) match   */
-/* ------------------------------------------------------------------ */
 function escapeIlike(s: string): string {
   return s.replace(/%/g, "\\%").replace(/_/g, "\\_");
 }
 
-/* ------------------------------------------------------------------ */
-/*  Empty form data factory                                            */
-/* ------------------------------------------------------------------ */
 function itemToForm(item: Item) {
   return {
     item_code: item.item_code,
@@ -37,9 +35,6 @@ function itemToForm(item: Item) {
   };
 }
 
-/* ------------------------------------------------------------------ */
-/*  Section component for grouped fields                               */
-/* ------------------------------------------------------------------ */
 function Section({
   title,
   children,
@@ -48,56 +43,54 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <div className="border border-gray-200 rounded-md bg-white">
-      <div className="px-4 py-2 bg-gray-50 border-b border-gray-200">
-        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+    <section className="rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] overflow-hidden">
+      <div className="px-5 py-3 bg-slate-50/70 border-b border-slate-200">
+        <h3 className="text-[11px] font-semibold text-slate-500 uppercase tracking-widest">
           {title}
         </h3>
       </div>
-      <div className="px-4 py-3">{children}</div>
-    </div>
+      <div className="px-5 py-5">{children}</div>
+    </section>
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  Field display (view mode)                                          */
-/* ------------------------------------------------------------------ */
-function Field({ label, value }: { label: string; value: string | null | undefined }) {
+function Field({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | null | undefined;
+}) {
   return (
     <div>
-      <dt className="text-xs font-medium text-gray-500">{label}</dt>
-      <dd className="mt-0.5 text-sm text-gray-900">{value || "—"}</dd>
+      <dt className="text-xs font-medium text-slate-500">{label}</dt>
+      <dd className="mt-1 text-sm text-slate-900">{value || "—"}</dd>
     </div>
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  Main page component                                                */
-/* ------------------------------------------------------------------ */
 export default function ItemDetailPage() {
   const params = useParams();
   const router = useRouter();
   const id = params.id as string;
 
-  // Item state
   const [item, setItem] = useState<Item | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
 
-  // Edit state
   const [editing, setEditing] = useState(false);
-  const [formData, setFormData] = useState<ReturnType<typeof itemToForm> | null>(
-    null
-  );
+  const [formData, setFormData] = useState<
+    ReturnType<typeof itemToForm> | null
+  >(null);
   const [saving, setSaving] = useState(false);
 
-  // Delete state
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  // Suppliers
   const [suppliers, setSuppliers] = useState<ItemSupplierWithCompany[]>([]);
-  const [editingSupplierId, setEditingSupplierId] = useState<number | null>(null);
+  const [editingSupplierId, setEditingSupplierId] = useState<number | null>(
+    null,
+  );
   const [editSupplierData, setEditSupplierData] = useState({
     their_item_code: "",
     price: "",
@@ -105,7 +98,6 @@ export default function ItemDetailPage() {
     notes: "",
   });
 
-  // Add supplier form
   const [showAddSupplier, setShowAddSupplier] = useState(false);
   const [newSupplier, setNewSupplier] = useState({
     company_id: null as number | null,
@@ -116,13 +108,11 @@ export default function ItemDetailPage() {
   });
   const [addingSupplier, setAddingSupplier] = useState(false);
 
-  // Status
   const [status, setStatus] = useState<{
     type: "success" | "error";
     message: string;
   } | null>(null);
 
-  /* ---- Fetch item ---- */
   const fetchItem = useCallback(async () => {
     const { data, error } = await supabase
       .from("item")
@@ -137,7 +127,6 @@ export default function ItemDetailPage() {
     setLoading(false);
   }, [id]);
 
-  /* ---- Fetch suppliers ---- */
   const fetchSuppliers = useCallback(async () => {
     const { data } = await supabase
       .from("item_supplier")
@@ -152,7 +141,6 @@ export default function ItemDetailPage() {
     fetchSuppliers();
   }, [fetchItem, fetchSuppliers]);
 
-  /* ---- Edit handlers ---- */
   function startEdit() {
     if (!item) return;
     setFormData(itemToForm(item));
@@ -208,25 +196,25 @@ export default function ItemDetailPage() {
     setSaving(false);
   }
 
-  /* ---- Delete handlers ---- */
   async function handleDelete() {
     if (!item) return;
     setDeleting(true);
     setStatus(null);
 
-    // Check for references in receipt_line and purchase_order_line
     const escaped = escapeIlike(item.item_code);
 
-    const [{ count: receiptCount }, { count: orderCount }] = await Promise.all([
-      supabase
-        .from("receipt_line")
-        .select("id", { count: "exact", head: true })
-        .ilike("item_number", escaped),
-      supabase
-        .from("purchase_order_line")
-        .select("id", { count: "exact", head: true })
-        .ilike("item_number", escaped),
-    ]);
+    const [{ count: receiptCount }, { count: orderCount }] = await Promise.all(
+      [
+        supabase
+          .from("receipt_line")
+          .select("id", { count: "exact", head: true })
+          .ilike("item_number", escaped),
+        supabase
+          .from("purchase_order_line")
+          .select("id", { count: "exact", head: true })
+          .ilike("item_number", escaped),
+      ],
+    );
 
     const rc = receiptCount ?? 0;
     const oc = orderCount ?? 0;
@@ -244,10 +232,8 @@ export default function ItemDetailPage() {
       return;
     }
 
-    // Delete supplier links first (FK is RESTRICT)
     await supabase.from("item_supplier").delete().eq("item_id", item.id);
 
-    // Delete the item
     const { error } = await supabase.from("item").delete().eq("id", item.id);
 
     if (error) {
@@ -259,7 +245,6 @@ export default function ItemDetailPage() {
     }
   }
 
-  /* ---- Supplier management ---- */
   async function handleAddSupplier() {
     if (!newSupplier.company_id || !item) return;
     setAddingSupplier(true);
@@ -314,7 +299,6 @@ export default function ItemDetailPage() {
       ? parseFloat(editSupplierData.price)
       : null;
 
-    // The DB trigger handles last_price_update on update if price changes
     const { error } = await supabase
       .from("item_supplier")
       .update({
@@ -347,21 +331,21 @@ export default function ItemDetailPage() {
     }
   }
 
-  /* ---- Render ---- */
   if (loading) {
     return (
-      <div className="max-w-3xl mx-auto px-4 py-8 text-gray-500">
-        Loading...
-      </div>
+      <div className="px-8 py-8 max-w-3xl text-slate-500">Loading…</div>
     );
   }
 
   if (notFound || !item) {
     return (
-      <div className="max-w-3xl mx-auto px-4 py-8">
-        <p className="text-gray-500">Item not found.</p>
-        <Link href="/items" className="text-blue-600 hover:underline text-sm mt-2 inline-block">
-          Back to Items
+      <div className="px-8 py-8 max-w-3xl">
+        <p className="text-slate-500">Item not found.</p>
+        <Link
+          href="/items"
+          className="text-teal-700 hover:text-teal-800 text-sm mt-3 inline-flex items-center gap-1"
+        >
+          <Icon name="chevronLeft" size={14} /> Back to Items
         </Link>
       </div>
     );
@@ -370,83 +354,82 @@ export default function ItemDetailPage() {
   const isEditing = editing && formData;
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8">
+    <div className="px-8 py-8 max-w-4xl">
       {/* Header */}
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <Link
           href="/items"
-          className="text-sm text-blue-600 hover:underline"
+          className="text-sm text-slate-600 hover:text-teal-700 inline-flex items-center gap-1 transition-colors"
         >
-          &larr; Back to Items
+          <Icon name="chevronLeft" size={14} /> Back to Items
         </Link>
-        <div className="flex gap-2">
-          {!editing && (
+        <div className="flex gap-2 flex-wrap">
+          {!editing && !deleteConfirm && (
             <>
-              <button
-                type="button"
-                onClick={startEdit}
-                className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-              >
+              <Button variant="secondary" onClick={startEdit}>
                 Edit
-              </button>
-              {!deleteConfirm ? (
-                <button
-                  type="button"
-                  onClick={() => setDeleteConfirm(true)}
-                  className="rounded-md border border-red-300 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
-                >
-                  Delete
-                </button>
-              ) : (
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={handleDelete}
-                    disabled={deleting}
-                    className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
-                  >
-                    {deleting ? "Deleting..." : "Confirm Delete"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setDeleteConfirm(false)}
-                    disabled={deleting}
-                    className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              )}
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => setDeleteConfirm(true)}
+                className="!border-rose-200 !text-rose-600 hover:!bg-rose-50 hover:!border-rose-300"
+              >
+                Delete
+              </Button>
+            </>
+          )}
+          {!editing && deleteConfirm && (
+            <>
+              <Button
+                variant="danger"
+                onClick={handleDelete}
+                loading={deleting}
+              >
+                Confirm delete
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => setDeleteConfirm(false)}
+                disabled={deleting}
+              >
+                Cancel
+              </Button>
             </>
           )}
           {editing && (
             <>
-              <button
-                type="button"
+              <Button
                 onClick={saveEdit}
-                disabled={saving || !formData?.item_code.trim()}
-                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                loading={saving}
+                disabled={!formData?.item_code.trim()}
+                icon="check"
               >
-                {saving ? "Saving..." : "Save"}
-              </button>
-              <button
-                type="button"
+                Save
+              </Button>
+              <Button
+                variant="secondary"
                 onClick={cancelEdit}
                 disabled={saving}
-                className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
               >
                 Cancel
-              </button>
+              </Button>
             </>
           )}
         </div>
       </div>
 
       {/* Title */}
-      <h1 className="text-xl font-bold text-gray-900 mb-4">
-        {item.item_code}
-        {item.item_name ? ` — ${item.item_name}` : ""}
-      </h1>
+      <div className="mb-5">
+        <p className="text-xs font-semibold tracking-widest text-slate-400 uppercase">
+          Item
+        </p>
+        <h2 className="text-2xl font-bold tracking-tight text-slate-900 mt-1 font-mono">
+          {item.item_code}
+        </h2>
+        {item.item_name && (
+          <p className="text-sm text-slate-600 mt-1">{item.item_name}</p>
+        )}
+      </div>
 
       {status && (
         <div className="mb-4">
@@ -460,52 +443,35 @@ export default function ItemDetailPage() {
 
       <div className="space-y-4">
         {/* Basic Info */}
-        <Section title="Basic Info">
+        <Section title="Basic info">
           {isEditing ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="sm:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Item Code *
-                </label>
-                <input
-                  type="text"
-                  value={formData.item_code}
-                  onChange={(e) =>
-                    setFormData({ ...formData, item_code: e.target.value })
-                  }
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Item Name
-                </label>
-                <input
-                  type="text"
-                  value={formData.item_name}
-                  onChange={(e) =>
-                    setFormData({ ...formData, item_name: e.target.value })
-                  }
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Manufacturer
-                </label>
-                <input
-                  type="text"
-                  value={formData.manufacturer}
-                  onChange={(e) =>
-                    setFormData({ ...formData, manufacturer: e.target.value })
-                  }
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
-              <div className="flex items-center gap-2 mt-4">
+              <Input
+                wrapperClassName="sm:col-span-2"
+                label="Item Code *"
+                className="font-mono"
+                value={formData.item_code}
+                onChange={(e) =>
+                  setFormData({ ...formData, item_code: e.target.value })
+                }
+              />
+              <Input
+                label="Item Name"
+                value={formData.item_name}
+                onChange={(e) =>
+                  setFormData({ ...formData, item_name: e.target.value })
+                }
+              />
+              <Input
+                label="Manufacturer"
+                value={formData.manufacturer}
+                onChange={(e) =>
+                  setFormData({ ...formData, manufacturer: e.target.value })
+                }
+              />
+              <label className="flex items-center gap-2 text-sm text-slate-700 mt-1 sm:col-span-2">
                 <input
                   type="checkbox"
-                  id="mfr-verified"
                   checked={formData.manufacturer_verified}
                   onChange={(e) =>
                     setFormData({
@@ -513,18 +479,13 @@ export default function ItemDetailPage() {
                       manufacturer_verified: e.target.checked,
                     })
                   }
-                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  className="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
                 />
-                <label
-                  htmlFor="mfr-verified"
-                  className="text-sm text-gray-700"
-                >
-                  Manufacturer Verified
-                </label>
-              </div>
+                Manufacturer Verified
+              </label>
             </div>
           ) : (
-            <dl className="grid grid-cols-2 gap-x-6 gap-y-3">
+            <dl className="grid grid-cols-2 gap-x-6 gap-y-4">
               <Field label="Item Code" value={item.item_code} />
               <Field label="Item Name" value={item.item_name} />
               <Field label="Manufacturer" value={item.manufacturer} />
@@ -540,65 +501,41 @@ export default function ItemDetailPage() {
         <Section title="Classification">
           {isEditing ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Item Type
-                </label>
-                <input
-                  type="text"
-                  value={formData.item_type}
-                  onChange={(e) =>
-                    setFormData({ ...formData, item_type: e.target.value })
-                  }
-                  placeholder="Reagent / calibrator / control / etc."
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Category
-                </label>
-                <input
-                  type="text"
-                  value={formData.category}
-                  onChange={(e) =>
-                    setFormData({ ...formData, category: e.target.value })
-                  }
-                  placeholder="Chemistry / hematology / etc."
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Test Type
-                </label>
-                <input
-                  type="text"
-                  value={formData.test_type}
-                  onChange={(e) =>
-                    setFormData({ ...formData, test_type: e.target.value })
-                  }
-                  placeholder="e.g. HbA1c"
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Machine
-                </label>
-                <input
-                  type="text"
-                  value={formData.machine}
-                  onChange={(e) =>
-                    setFormData({ ...formData, machine: e.target.value })
-                  }
-                  placeholder="e.g. DxC 700 AU"
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
+              <Input
+                label="Item Type"
+                placeholder="Reagent / calibrator / control / etc."
+                value={formData.item_type}
+                onChange={(e) =>
+                  setFormData({ ...formData, item_type: e.target.value })
+                }
+              />
+              <Input
+                label="Category"
+                placeholder="Chemistry / hematology / etc."
+                value={formData.category}
+                onChange={(e) =>
+                  setFormData({ ...formData, category: e.target.value })
+                }
+              />
+              <Input
+                label="Test Type"
+                placeholder="e.g. HbA1c"
+                value={formData.test_type}
+                onChange={(e) =>
+                  setFormData({ ...formData, test_type: e.target.value })
+                }
+              />
+              <Input
+                label="Machine"
+                placeholder="e.g. DxC 700 AU"
+                value={formData.machine}
+                onChange={(e) =>
+                  setFormData({ ...formData, machine: e.target.value })
+                }
+              />
             </div>
           ) : (
-            <dl className="grid grid-cols-2 gap-x-6 gap-y-3">
+            <dl className="grid grid-cols-2 gap-x-6 gap-y-4">
               <Field label="Item Type" value={item.item_type} />
               <Field label="Category" value={item.category} />
               <Field label="Test Type" value={item.test_type} />
@@ -611,74 +548,53 @@ export default function ItemDetailPage() {
         <Section title="Physical">
           {isEditing ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Parts per Box
-                </label>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  value={formData.parts_per_box}
-                  onChange={(e) =>
-                    setFormData({ ...formData, parts_per_box: e.target.value })
-                  }
-                  min="1"
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Tests per Box
-                </label>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  value={formData.tests_per_box}
-                  onChange={(e) =>
-                    setFormData({ ...formData, tests_per_box: e.target.value })
-                  }
-                  min="1"
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Shelf Life (days)
-                </label>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  value={formData.shelf_life_days}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      shelf_life_days: e.target.value,
-                    })
-                  }
-                  min="1"
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Storage Requirements
-                </label>
-                <input
-                  type="text"
-                  value={formData.storage_requirements}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      storage_requirements: e.target.value,
-                    })
-                  }
-                  placeholder="Refrigerated / frozen / room temp"
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
+              <Input
+                label="Parts per Box"
+                type="number"
+                inputMode="numeric"
+                value={formData.parts_per_box}
+                onChange={(e) =>
+                  setFormData({ ...formData, parts_per_box: e.target.value })
+                }
+                min="1"
+              />
+              <Input
+                label="Tests per Box"
+                type="number"
+                inputMode="numeric"
+                value={formData.tests_per_box}
+                onChange={(e) =>
+                  setFormData({ ...formData, tests_per_box: e.target.value })
+                }
+                min="1"
+              />
+              <Input
+                label="Shelf Life (days)"
+                type="number"
+                inputMode="numeric"
+                value={formData.shelf_life_days}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    shelf_life_days: e.target.value,
+                  })
+                }
+                min="1"
+              />
+              <Input
+                label="Storage Requirements"
+                placeholder="Refrigerated / frozen / room temp"
+                value={formData.storage_requirements}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    storage_requirements: e.target.value,
+                  })
+                }
+              />
             </div>
           ) : (
-            <dl className="grid grid-cols-2 gap-x-6 gap-y-3">
+            <dl className="grid grid-cols-2 gap-x-6 gap-y-4">
               <Field
                 label="Parts per Box"
                 value={item.parts_per_box?.toString()}
@@ -690,9 +606,7 @@ export default function ItemDetailPage() {
               <Field
                 label="Shelf Life"
                 value={
-                  item.shelf_life_days
-                    ? `${item.shelf_life_days} days`
-                    : null
+                  item.shelf_life_days ? `${item.shelf_life_days} days` : null
                 }
               />
               <Field label="Storage" value={item.storage_requirements} />
@@ -704,40 +618,31 @@ export default function ItemDetailPage() {
         <Section title="Operations">
           {isEditing ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Average Order Qty
-                </label>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  value={formData.average_order_qty}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      average_order_qty: e.target.value,
-                    })
-                  }
-                  min="1"
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Notes
-                </label>
-                <textarea
-                  value={formData.notes}
-                  onChange={(e) =>
-                    setFormData({ ...formData, notes: e.target.value })
-                  }
-                  rows={3}
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
+              <Input
+                label="Average Order Qty"
+                type="number"
+                inputMode="numeric"
+                value={formData.average_order_qty}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    average_order_qty: e.target.value,
+                  })
+                }
+                min="1"
+              />
+              <Textarea
+                wrapperClassName="sm:col-span-2"
+                label="Notes"
+                rows={3}
+                value={formData.notes}
+                onChange={(e) =>
+                  setFormData({ ...formData, notes: e.target.value })
+                }
+              />
             </div>
           ) : (
-            <dl className="grid grid-cols-2 gap-x-6 gap-y-3">
+            <dl className="grid grid-cols-2 gap-x-6 gap-y-4">
               <Field
                 label="Average Order Qty"
                 value={item.average_order_qty?.toString()}
@@ -750,31 +655,37 @@ export default function ItemDetailPage() {
         {/* Suppliers */}
         <Section title="Suppliers">
           {suppliers.length > 0 ? (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto -mx-5">
               <table className="w-full text-sm">
-                <thead className="text-left">
-                  <tr className="border-b border-gray-200">
-                    <th className="pb-2 font-medium text-gray-600">Supplier</th>
-                    <th className="pb-2 font-medium text-gray-600">
-                      Their Code
+                <thead className="text-left text-slate-500 text-xs border-b border-slate-200">
+                  <tr>
+                    <th className="px-5 pb-2 font-semibold uppercase tracking-wider">
+                      Supplier
                     </th>
-                    <th className="pb-2 font-medium text-gray-600">Price</th>
-                    <th className="pb-2 font-medium text-gray-600">
-                      Last Updated
+                    <th className="px-5 pb-2 font-semibold uppercase tracking-wider">
+                      Their code
                     </th>
-                    <th className="pb-2 font-medium text-gray-600">Actions</th>
+                    <th className="px-5 pb-2 font-semibold uppercase tracking-wider text-right">
+                      Price
+                    </th>
+                    <th className="px-5 pb-2 font-semibold uppercase tracking-wider">
+                      Last updated
+                    </th>
+                    <th className="px-5 pb-2 font-semibold uppercase tracking-wider text-right">
+                      Actions
+                    </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-slate-100">
                   {suppliers.map((s) =>
                     editingSupplierId === s.id ? (
                       <tr key={s.id}>
-                        <td className="py-2 pr-2 text-sm text-gray-900">
+                        <td className="px-5 py-3 text-sm font-medium text-slate-900">
                           {s.company.name}
                         </td>
-                        <td className="py-2 pr-2">
-                          <input
-                            type="text"
+                        <td className="px-5 py-3">
+                          <Input
+                            wrapperClassName="min-w-[120px]"
                             value={editSupplierData.their_item_code}
                             onChange={(e) =>
                               setEditSupplierData({
@@ -782,11 +693,11 @@ export default function ItemDetailPage() {
                                 their_item_code: e.target.value,
                               })
                             }
-                            className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
                           />
                         </td>
-                        <td className="py-2 pr-2">
-                          <input
+                        <td className="px-5 py-3">
+                          <Input
+                            wrapperClassName="w-28"
                             type="number"
                             step="0.01"
                             value={editSupplierData.price}
@@ -796,23 +707,23 @@ export default function ItemDetailPage() {
                                 price: e.target.value,
                               })
                             }
-                            className="w-24 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                            className="text-right tabular-nums"
                           />
                         </td>
-                        <td className="py-2 pr-2 text-sm text-gray-500">—</td>
-                        <td className="py-2">
-                          <div className="flex gap-1">
+                        <td className="px-5 py-3 text-sm text-slate-500">—</td>
+                        <td className="px-5 py-3 text-right">
+                          <div className="flex gap-2 justify-end">
                             <button
                               type="button"
                               onClick={() => saveEditSupplier(s)}
-                              className="text-blue-600 hover:text-blue-800 text-sm"
+                              className="text-teal-700 hover:text-teal-800 text-sm font-semibold transition-colors"
                             >
                               Save
                             </button>
                             <button
                               type="button"
                               onClick={() => setEditingSupplierId(null)}
-                              className="text-gray-500 hover:text-gray-700 text-sm ml-2"
+                              className="text-slate-500 hover:text-slate-700 text-sm transition-colors"
                             >
                               Cancel
                             </button>
@@ -820,62 +731,68 @@ export default function ItemDetailPage() {
                         </td>
                       </tr>
                     ) : (
-                      <tr key={s.id}>
-                        <td className="py-2 pr-2 text-sm text-gray-900">
+                      <tr
+                        key={s.id}
+                        className="hover:bg-slate-50/60 transition-colors"
+                      >
+                        <td className="px-5 py-3 text-sm font-medium text-slate-900">
                           {s.company.name}
                         </td>
-                        <td className="py-2 pr-2 text-sm text-gray-700">
+                        <td className="px-5 py-3 text-sm text-slate-700 font-mono">
                           {s.their_item_code || "—"}
                         </td>
-                        <td className="py-2 pr-2 text-sm text-gray-700">
-                          {s.price != null ? `$${Number(s.price).toFixed(2)}` : "—"}
+                        <td className="px-5 py-3 text-sm text-slate-700 text-right tabular-nums">
+                          {s.price != null
+                            ? `$${Number(s.price).toFixed(2)}`
+                            : "—"}
                         </td>
-                        <td className="py-2 pr-2 text-sm text-gray-500">
+                        <td className="px-5 py-3 text-sm text-slate-500 tabular-nums">
                           {s.last_price_update
                             ? new Date(s.last_price_update).toLocaleDateString()
                             : "—"}
                         </td>
-                        <td className="py-2">
-                          <div className="flex gap-2">
+                        <td className="px-5 py-3 text-right">
+                          <div className="flex gap-3 justify-end">
                             <button
                               type="button"
                               onClick={() => startEditSupplier(s)}
-                              className="text-blue-600 hover:text-blue-800 text-sm"
+                              className="text-teal-700 hover:text-teal-800 text-sm font-semibold transition-colors"
                             >
                               Edit
                             </button>
                             <button
                               type="button"
                               onClick={() => removeSupplier(s.id)}
-                              className="text-red-600 hover:text-red-800 text-sm"
+                              className="text-rose-600 hover:text-rose-700 text-sm font-medium transition-colors"
                             >
                               Remove
                             </button>
                           </div>
                         </td>
                       </tr>
-                    )
+                    ),
                   )}
                 </tbody>
               </table>
             </div>
           ) : (
-            <p className="text-sm text-gray-500">No suppliers linked yet.</p>
+            <p className="text-sm text-slate-500">No suppliers linked yet.</p>
           )}
 
-          {/* Add supplier */}
           {!showAddSupplier ? (
-            <button
-              type="button"
-              onClick={() => setShowAddSupplier(true)}
-              className="mt-3 rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-            >
-              + Add Supplier
-            </button>
+            <div className="mt-4">
+              <Button
+                variant="secondary"
+                icon="plus"
+                onClick={() => setShowAddSupplier(true)}
+              >
+                Add supplier
+              </Button>
+            </div>
           ) : (
-            <div className="mt-3 border-t border-gray-200 pt-3">
-              <h4 className="text-sm font-medium text-gray-700 mb-3">
-                Add Supplier
+            <div className="mt-4 border-t border-slate-200 pt-4">
+              <h4 className="text-sm font-semibold text-slate-700 mb-3">
+                Add supplier
               </h4>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <CompanySelect
@@ -885,83 +802,67 @@ export default function ItemDetailPage() {
                   }
                   label="Supplier"
                 />
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Their Item Code
-                  </label>
-                  <input
-                    type="text"
-                    value={newSupplier.their_item_code}
-                    onChange={(e) =>
-                      setNewSupplier({
-                        ...newSupplier,
-                        their_item_code: e.target.value,
-                      })
-                    }
-                    placeholder="Blank if same as manufacturer code"
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Price
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={newSupplier.price}
-                    onChange={(e) =>
-                      setNewSupplier({ ...newSupplier, price: e.target.value })
-                    }
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Currency
-                  </label>
-                  <input
-                    type="text"
-                    value={newSupplier.currency}
-                    onChange={(e) =>
-                      setNewSupplier({
-                        ...newSupplier,
-                        currency: e.target.value,
-                      })
-                    }
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-                  />
-                </div>
-                <div className="sm:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Notes
-                  </label>
-                  <input
-                    type="text"
-                    value={newSupplier.notes}
-                    onChange={(e) =>
-                      setNewSupplier({ ...newSupplier, notes: e.target.value })
-                    }
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-                  />
-                </div>
+                <Input
+                  label="Their Item Code"
+                  placeholder="Blank if same as manufacturer code"
+                  value={newSupplier.their_item_code}
+                  onChange={(e) =>
+                    setNewSupplier({
+                      ...newSupplier,
+                      their_item_code: e.target.value,
+                    })
+                  }
+                  className="font-mono"
+                />
+                <Input
+                  label="Price"
+                  type="number"
+                  step="0.01"
+                  value={newSupplier.price}
+                  onChange={(e) =>
+                    setNewSupplier({
+                      ...newSupplier,
+                      price: e.target.value,
+                    })
+                  }
+                />
+                <Input
+                  label="Currency"
+                  value={newSupplier.currency}
+                  onChange={(e) =>
+                    setNewSupplier({
+                      ...newSupplier,
+                      currency: e.target.value,
+                    })
+                  }
+                />
+                <Input
+                  wrapperClassName="sm:col-span-2"
+                  label="Notes"
+                  value={newSupplier.notes}
+                  onChange={(e) =>
+                    setNewSupplier({
+                      ...newSupplier,
+                      notes: e.target.value,
+                    })
+                  }
+                />
               </div>
-              <div className="flex gap-2 mt-3">
-                <button
-                  type="button"
+              <div className="flex gap-2 mt-4">
+                <Button
                   onClick={handleAddSupplier}
-                  disabled={addingSupplier || !newSupplier.company_id}
-                  className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                  loading={addingSupplier}
+                  disabled={!newSupplier.company_id}
+                  icon="check"
                 >
-                  {addingSupplier ? "Adding..." : "Add"}
-                </button>
-                <button
-                  type="button"
+                  Add
+                </Button>
+                <Button
+                  variant="secondary"
                   onClick={() => setShowAddSupplier(false)}
-                  className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
                 >
                   Cancel
-                </button>
+                </Button>
               </div>
             </div>
           )}

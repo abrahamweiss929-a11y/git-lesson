@@ -1,16 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import type { Item } from "@/lib/types";
-import { useRef } from "react";
 import StatusMessage from "@/components/StatusMessage";
 import Pagination from "@/components/Pagination";
 import CollapsibleSection from "@/components/CollapsibleSection";
 import BulkImportModal from "@/components/BulkImportModal";
 import MissingReferencesModal from "@/components/MissingReferencesModal";
-import { downloadItemTemplate, downloadSupplierTemplate } from "@/lib/generate-item-template";
+import Button from "@/components/ui/Button";
+import Input from "@/components/ui/Input";
+import Textarea from "@/components/ui/Textarea";
+import Card from "@/components/ui/Card";
+import Icon from "@/components/ui/Icon";
+import Badge, { type BadgeColor } from "@/components/ui/Badge";
+import {
+  downloadItemTemplate,
+  downloadSupplierTemplate,
+} from "@/lib/generate-item-template";
 import {
   parseItemSpreadsheet,
   diffWithExisting,
@@ -36,23 +44,43 @@ function sanitizeSearch(raw: string): string {
     .replace(/_/g, "\\_");
 }
 
+function categoryBadgeColor(cat: string | null): BadgeColor {
+  if (!cat) return "slate";
+  const lc = cat.toLowerCase();
+  if (lc.includes("chem")) return "teal";
+  if (lc.includes("hema")) return "violet";
+  if (lc.includes("consum")) return "sky";
+  if (lc.includes("immuno")) return "amber";
+  if (lc.includes("micro")) return "emerald";
+  return "slate";
+}
+
+function categoryIconBg(cat: string | null): string {
+  const color = categoryBadgeColor(cat);
+  return {
+    teal: "bg-teal-50 text-teal-600",
+    violet: "bg-violet-50 text-violet-600",
+    sky: "bg-sky-50 text-sky-600",
+    amber: "bg-amber-50 text-amber-600",
+    emerald: "bg-emerald-50 text-emerald-600",
+    rose: "bg-rose-50 text-rose-600",
+    slate: "bg-slate-100 text-slate-500",
+  }[color];
+}
+
 export default function ItemsPage() {
   const router = useRouter();
 
-  // Data
   const [items, setItems] = useState<Item[]>([]);
   const [totalCount, setTotalCount] = useState(0);
 
-  // Search
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
 
-  // Pagination & sort
   const [currentPage, setCurrentPage] = useState(1);
   const [sortColumn, setSortColumn] = useState<SortColumn>("item_code");
   const [sortDirection, setSortDirection] = useState<SortDir>("asc");
 
-  // Single-item add form
   const [addForm, setAddForm] = useState({
     item_code: "",
     item_name: "",
@@ -71,19 +99,19 @@ export default function ItemsPage() {
   });
   const [saving, setSaving] = useState(false);
 
-  // Items bulk upload
   const itemFileInputRef = useRef<HTMLInputElement>(null);
   const [itemBulkDiff, setItemBulkDiff] = useState<ImportDiff | null>(null);
   const [itemImporting, setItemImporting] = useState(false);
 
-  // Supplier bulk upload
   const supplierFileInputRef = useRef<HTMLInputElement>(null);
-  const [supplierRows, setSupplierRows] = useState<ParsedSupplierRow[] | null>(null);
-  const [supplierAnalysis, setSupplierAnalysis] = useState<SupplierImportAnalysis | null>(null);
+  const [supplierRows, setSupplierRows] = useState<ParsedSupplierRow[] | null>(
+    null,
+  );
+  const [supplierAnalysis, setSupplierAnalysis] =
+    useState<SupplierImportAnalysis | null>(null);
   const [supplierImporting, setSupplierImporting] = useState(false);
   const [showMissingRefs, setShowMissingRefs] = useState(false);
 
-  // Status
   const [status, setStatus] = useState<{
     type: "success" | "error";
     message: string;
@@ -91,7 +119,6 @@ export default function ItemsPage() {
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
-  // Debounce search input by 300ms
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedQuery(searchQuery);
@@ -113,7 +140,7 @@ export default function ItemsPage() {
     if (debouncedQuery.trim()) {
       const escaped = sanitizeSearch(debouncedQuery.trim());
       query = query.or(
-        `item_code.ilike.%${escaped}%,item_name.ilike.%${escaped}%`
+        `item_code.ilike.%${escaped}%,item_name.ilike.%${escaped}%`,
       );
     }
 
@@ -142,13 +169,25 @@ export default function ItemsPage() {
     setCurrentPage(1);
   }
 
-  function sortArrow(col: SortColumn) {
-    if (col !== sortColumn) return "";
-    return sortDirection === "asc" ? " ↑" : " ↓";
-  }
-
-  function handlePageChange(page: number) {
-    setCurrentPage(page);
+  function SortHeader({ col, label }: { col: SortColumn; label: string }) {
+    const active = col === sortColumn;
+    return (
+      <th
+        onClick={() => handleSort(col)}
+        className="font-semibold uppercase tracking-wider px-5 py-3 cursor-pointer select-none hover:text-slate-700 transition-colors"
+      >
+        <span className="inline-flex items-center gap-1">
+          {label}
+          {active && (
+            <Icon
+              name={sortDirection === "asc" ? "sortUp" : "sortDown"}
+              size={12}
+              className="text-slate-500"
+            />
+          )}
+        </span>
+      </th>
+    );
   }
 
   async function handleAddItem(e: React.FormEvent) {
@@ -162,15 +201,23 @@ export default function ItemsPage() {
       item_name: addForm.item_name.trim() || null,
       manufacturer: addForm.manufacturer.trim() || null,
       manufacturer_verified: addForm.manufacturer_verified,
-      parts_per_box: addForm.parts_per_box ? parseInt(addForm.parts_per_box) : null,
-      tests_per_box: addForm.tests_per_box ? parseInt(addForm.tests_per_box) : null,
-      shelf_life_days: addForm.shelf_life_days ? parseInt(addForm.shelf_life_days) : null,
+      parts_per_box: addForm.parts_per_box
+        ? parseInt(addForm.parts_per_box)
+        : null,
+      tests_per_box: addForm.tests_per_box
+        ? parseInt(addForm.tests_per_box)
+        : null,
+      shelf_life_days: addForm.shelf_life_days
+        ? parseInt(addForm.shelf_life_days)
+        : null,
       test_type: addForm.test_type.trim() || null,
       machine: addForm.machine.trim() || null,
       item_type: addForm.item_type.trim() || null,
       category: addForm.category.trim() || null,
       storage_requirements: addForm.storage_requirements.trim() || null,
-      average_order_qty: addForm.average_order_qty ? parseInt(addForm.average_order_qty) : null,
+      average_order_qty: addForm.average_order_qty
+        ? parseInt(addForm.average_order_qty)
+        : null,
       notes: addForm.notes.trim() || null,
     });
 
@@ -184,18 +231,29 @@ export default function ItemsPage() {
     } else {
       setStatus({ type: "success", message: "Item added." });
       setAddForm({
-        item_code: "", item_name: "", manufacturer: "",
-        manufacturer_verified: false, parts_per_box: "", tests_per_box: "",
-        shelf_life_days: "", test_type: "", machine: "", item_type: "",
-        category: "", storage_requirements: "", average_order_qty: "", notes: "",
+        item_code: "",
+        item_name: "",
+        manufacturer: "",
+        manufacturer_verified: false,
+        parts_per_box: "",
+        tests_per_box: "",
+        shelf_life_days: "",
+        test_type: "",
+        machine: "",
+        item_type: "",
+        category: "",
+        storage_requirements: "",
+        average_order_qty: "",
+        notes: "",
       });
       fetchItems();
     }
     setSaving(false);
   }
 
-  /* ---- Items bulk upload handlers ---- */
-  async function handleItemFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleItemFileSelected(
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) {
     const file = e.target.files?.[0];
     if (!file) return;
     if (itemFileInputRef.current) itemFileInputRef.current.value = "";
@@ -207,13 +265,15 @@ export default function ItemsPage() {
       return;
     }
 
-    // Fetch all items for diffing
     const { data: allItems } = await supabase
       .from("item")
       .select("id, item_code");
     const diff = diffWithExisting(result.rows, allItems ?? []);
     if (diff.toInsert.length === 0 && diff.toUpdate.length === 0) {
-      setStatus({ type: "error", message: "No new or updated items found in file." });
+      setStatus({
+        type: "error",
+        message: "No new or updated items found in file.",
+      });
       return;
     }
     setItemBulkDiff(diff);
@@ -242,10 +302,13 @@ export default function ItemsPage() {
             storage_requirements: row.storage_requirements,
             average_order_qty: row.average_order_qty,
             notes: row.notes,
-          }))
+          })),
         );
         if (error) {
-          setStatus({ type: "error", message: `Insert failed: ${error.message}` });
+          setStatus({
+            type: "error",
+            message: `Insert failed: ${error.message}`,
+          });
           setItemImporting(false);
           setItemBulkDiff(null);
           fetchItems();
@@ -274,13 +337,16 @@ export default function ItemsPage() {
                 average_order_qty: row.average_order_qty,
                 notes: row.notes,
               })
-              .eq("id", row.existingId)
-          )
+              .eq("id", row.existingId),
+          ),
         );
 
         const firstError = updateResults.find((r) => r.error);
         if (firstError?.error) {
-          setStatus({ type: "error", message: `Some updates failed: ${firstError.error.message}` });
+          setStatus({
+            type: "error",
+            message: `Some updates failed: ${firstError.error.message}`,
+          });
           setItemImporting(false);
           setItemBulkDiff(null);
           fetchItems();
@@ -291,13 +357,21 @@ export default function ItemsPage() {
       const added = itemBulkDiff.toInsert.length;
       const updated = itemBulkDiff.toUpdate.length;
       const parts = [];
-      if (added > 0) parts.push(`${added} item${added !== 1 ? "s" : ""} added`);
-      if (updated > 0) parts.push(`${updated} item${updated !== 1 ? "s" : ""} updated`);
-      setStatus({ type: "success", message: `Import complete — ${parts.join(", ")}.` });
+      if (added > 0)
+        parts.push(`${added} item${added !== 1 ? "s" : ""} added`);
+      if (updated > 0)
+        parts.push(`${updated} item${updated !== 1 ? "s" : ""} updated`);
+      setStatus({
+        type: "success",
+        message: `Import complete — ${parts.join(", ")}.`,
+      });
       setItemBulkDiff(null);
       fetchItems();
     } catch (err) {
-      setStatus({ type: "error", message: err instanceof Error ? err.message : "Import failed." });
+      setStatus({
+        type: "error",
+        message: err instanceof Error ? err.message : "Import failed.",
+      });
       setItemBulkDiff(null);
       fetchItems();
     } finally {
@@ -305,8 +379,9 @@ export default function ItemsPage() {
     }
   }
 
-  /* ---- Supplier bulk upload handlers ---- */
-  async function handleSupplierFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleSupplierFileSelected(
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) {
     const file = e.target.files?.[0];
     if (!file) return;
     if (supplierFileInputRef.current) supplierFileInputRef.current.value = "";
@@ -318,7 +393,6 @@ export default function ItemsPage() {
       return;
     }
 
-    // Fetch items and companies for cross-reference
     const [{ data: allItems }, { data: allCompanies }] = await Promise.all([
       supabase.from("item").select("id, item_code"),
       supabase.from("company").select("id, name"),
@@ -327,25 +401,30 @@ export default function ItemsPage() {
     const analysis = analyzeSupplierImport(
       result.rows,
       allItems ?? [],
-      allCompanies ?? []
+      allCompanies ?? [],
     );
 
     setSupplierRows(result.rows);
     setSupplierAnalysis(analysis);
 
-    if (analysis.missingItemCodes.length > 0 || analysis.missingCompanies.length > 0) {
+    if (
+      analysis.missingItemCodes.length > 0 ||
+      analysis.missingCompanies.length > 0
+    ) {
       setShowMissingRefs(true);
     } else {
-      // All references found — proceed directly
       await executeSupplierImport(analysis.readyToImport);
     }
   }
 
   async function executeSupplierImport(
-    rows: SupplierImportAnalysis["readyToImport"]
+    rows: SupplierImportAnalysis["readyToImport"],
   ) {
     if (rows.length === 0) {
-      setStatus({ type: "error", message: "No valid supplier rows to import." });
+      setStatus({
+        type: "error",
+        message: "No valid supplier rows to import.",
+      });
       return;
     }
 
@@ -361,13 +440,17 @@ export default function ItemsPage() {
           price: row.price,
           currency: row.currency || "USD",
           notes: row.notes,
-          last_price_update: row.price != null ? new Date().toISOString() : null,
+          last_price_update:
+            row.price != null ? new Date().toISOString() : null,
         })),
-        { onConflict: "item_id,company_id" }
+        { onConflict: "item_id,company_id" },
       );
 
       if (error) {
-        setStatus({ type: "error", message: `Supplier import failed: ${error.message}` });
+        setStatus({
+          type: "error",
+          message: `Supplier import failed: ${error.message}`,
+        });
       } else {
         setStatus({
           type: "success",
@@ -377,7 +460,8 @@ export default function ItemsPage() {
     } catch (err) {
       setStatus({
         type: "error",
-        message: err instanceof Error ? err.message : "Supplier import failed.",
+        message:
+          err instanceof Error ? err.message : "Supplier import failed.",
       });
     } finally {
       setSupplierImporting(false);
@@ -398,31 +482,36 @@ export default function ItemsPage() {
     setStatus(null);
 
     try {
-      // Create missing companies
       if (supplierAnalysis.missingCompanies.length > 0) {
         const { error } = await supabase
           .from("company")
           .insert(supplierAnalysis.missingCompanies.map((name) => ({ name })));
         if (error) {
-          setStatus({ type: "error", message: `Failed to create companies: ${error.message}` });
+          setStatus({
+            type: "error",
+            message: `Failed to create companies: ${error.message}`,
+          });
           setSupplierImporting(false);
           return;
         }
       }
 
-      // Create missing items (just item_code, everything else null)
       if (supplierAnalysis.missingItemCodes.length > 0) {
-        const { error } = await supabase
-          .from("item")
-          .insert(supplierAnalysis.missingItemCodes.map((code) => ({ item_code: code })));
+        const { error } = await supabase.from("item").insert(
+          supplierAnalysis.missingItemCodes.map((code) => ({
+            item_code: code,
+          })),
+        );
         if (error) {
-          setStatus({ type: "error", message: `Failed to create items: ${error.message}` });
+          setStatus({
+            type: "error",
+            message: `Failed to create items: ${error.message}`,
+          });
           setSupplierImporting(false);
           return;
         }
       }
 
-      // Re-fetch items and companies, re-analyze
       const [{ data: allItems }, { data: allCompanies }] = await Promise.all([
         supabase.from("item").select("id, item_code"),
         supabase.from("company").select("id, name"),
@@ -431,11 +520,11 @@ export default function ItemsPage() {
       const newAnalysis = analyzeSupplierImport(
         supplierRows,
         allItems ?? [],
-        allCompanies ?? []
+        allCompanies ?? [],
       );
 
       await executeSupplierImport(newAnalysis.readyToImport);
-      fetchItems(); // refresh the items table since we may have created new items
+      fetchItems();
     } catch (err) {
       setStatus({
         type: "error",
@@ -449,13 +538,20 @@ export default function ItemsPage() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-8">
+    <div className="px-8 py-8 max-w-[1400px]">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-xl font-bold">Items</h1>
-        <span className="text-sm text-gray-500">
-          {totalCount} item{totalCount !== 1 ? "s" : ""} in system
-        </span>
+      <div className="flex items-end justify-between mb-6 flex-wrap gap-4">
+        <div>
+          <p className="text-xs font-semibold tracking-widest text-slate-400 uppercase">
+            Catalog
+          </p>
+          <h2 className="text-2xl font-bold tracking-tight text-slate-900 mt-1">
+            Items
+          </h2>
+          <p className="text-sm text-slate-500 mt-1 tabular-nums">
+            {totalCount} item{totalCount !== 1 ? "s" : ""} in system
+          </p>
+        </div>
       </div>
 
       {status && (
@@ -468,101 +564,182 @@ export default function ItemsPage() {
         </div>
       )}
 
-      {/* Search */}
-      <div className="mb-4">
-        <input
-          type="text"
+      {/* Filter strip */}
+      <Card padded={false} className="mb-5 p-4">
+        <Input
+          icon="search"
+          placeholder="Search by item code or name…"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search by item code or name..."
-          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+          aria-label="Search items"
         />
-      </div>
+      </Card>
 
       {/* Collapsible sections */}
       <div className="space-y-2 mb-6">
         <CollapsibleSection title="Add single item manually">
-          <form onSubmit={handleAddItem} className="space-y-4">
+          <form onSubmit={handleAddItem} className="space-y-4 pt-2">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Item Code *</label>
-                <input type="text" value={addForm.item_code} onChange={(e) => setAddForm({ ...addForm, item_code: e.target.value })} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Item Name</label>
-                <input type="text" value={addForm.item_name} onChange={(e) => setAddForm({ ...addForm, item_name: e.target.value })} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Manufacturer</label>
-                <input type="text" value={addForm.manufacturer} onChange={(e) => setAddForm({ ...addForm, manufacturer: e.target.value })} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Parts per Box</label>
-                <input type="number" inputMode="numeric" value={addForm.parts_per_box} onChange={(e) => setAddForm({ ...addForm, parts_per_box: e.target.value })} min="1" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Tests per Box</label>
-                <input type="number" inputMode="numeric" value={addForm.tests_per_box} onChange={(e) => setAddForm({ ...addForm, tests_per_box: e.target.value })} min="1" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Shelf Life (days)</label>
-                <input type="number" inputMode="numeric" value={addForm.shelf_life_days} onChange={(e) => setAddForm({ ...addForm, shelf_life_days: e.target.value })} min="1" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Test Type</label>
-                <input type="text" value={addForm.test_type} onChange={(e) => setAddForm({ ...addForm, test_type: e.target.value })} placeholder="e.g. HbA1c" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Machine</label>
-                <input type="text" value={addForm.machine} onChange={(e) => setAddForm({ ...addForm, machine: e.target.value })} placeholder="e.g. DxC 700 AU" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Item Type</label>
-                <input type="text" value={addForm.item_type} onChange={(e) => setAddForm({ ...addForm, item_type: e.target.value })} placeholder="Reagent / calibrator / etc." className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
-                <input type="text" value={addForm.category} onChange={(e) => setAddForm({ ...addForm, category: e.target.value })} placeholder="Chemistry / hematology / etc." className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Storage Requirements</label>
-                <input type="text" value={addForm.storage_requirements} onChange={(e) => setAddForm({ ...addForm, storage_requirements: e.target.value })} placeholder="Refrigerated / frozen / room temp" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Average Order Qty</label>
-                <input type="number" inputMode="numeric" value={addForm.average_order_qty} onChange={(e) => setAddForm({ ...addForm, average_order_qty: e.target.value })} min="1" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none" />
-              </div>
-              <div className="sm:col-span-2 lg:col-span-3">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
-                <textarea value={addForm.notes} onChange={(e) => setAddForm({ ...addForm, notes: e.target.value })} rows={2} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none" />
-              </div>
-              <div className="flex items-center gap-2">
-                <input type="checkbox" id="add-mfr-verified" checked={addForm.manufacturer_verified} onChange={(e) => setAddForm({ ...addForm, manufacturer_verified: e.target.checked })} className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-                <label htmlFor="add-mfr-verified" className="text-sm text-gray-700">Manufacturer Verified</label>
-              </div>
+              <Input
+                label="Item Code *"
+                value={addForm.item_code}
+                onChange={(e) =>
+                  setAddForm({ ...addForm, item_code: e.target.value })
+                }
+                className="font-mono"
+              />
+              <Input
+                label="Item Name"
+                value={addForm.item_name}
+                onChange={(e) =>
+                  setAddForm({ ...addForm, item_name: e.target.value })
+                }
+              />
+              <Input
+                label="Manufacturer"
+                value={addForm.manufacturer}
+                onChange={(e) =>
+                  setAddForm({ ...addForm, manufacturer: e.target.value })
+                }
+              />
+              <Input
+                label="Parts per Box"
+                type="number"
+                inputMode="numeric"
+                value={addForm.parts_per_box}
+                onChange={(e) =>
+                  setAddForm({ ...addForm, parts_per_box: e.target.value })
+                }
+                min="1"
+              />
+              <Input
+                label="Tests per Box"
+                type="number"
+                inputMode="numeric"
+                value={addForm.tests_per_box}
+                onChange={(e) =>
+                  setAddForm({ ...addForm, tests_per_box: e.target.value })
+                }
+                min="1"
+              />
+              <Input
+                label="Shelf Life (days)"
+                type="number"
+                inputMode="numeric"
+                value={addForm.shelf_life_days}
+                onChange={(e) =>
+                  setAddForm({ ...addForm, shelf_life_days: e.target.value })
+                }
+                min="1"
+              />
+              <Input
+                label="Test Type"
+                placeholder="e.g. HbA1c"
+                value={addForm.test_type}
+                onChange={(e) =>
+                  setAddForm({ ...addForm, test_type: e.target.value })
+                }
+              />
+              <Input
+                label="Machine"
+                placeholder="e.g. DxC 700 AU"
+                value={addForm.machine}
+                onChange={(e) =>
+                  setAddForm({ ...addForm, machine: e.target.value })
+                }
+              />
+              <Input
+                label="Item Type"
+                placeholder="Reagent / calibrator / etc."
+                value={addForm.item_type}
+                onChange={(e) =>
+                  setAddForm({ ...addForm, item_type: e.target.value })
+                }
+              />
+              <Input
+                label="Category"
+                placeholder="Chemistry / hematology / etc."
+                value={addForm.category}
+                onChange={(e) =>
+                  setAddForm({ ...addForm, category: e.target.value })
+                }
+              />
+              <Input
+                label="Storage Requirements"
+                placeholder="Refrigerated / frozen / room temp"
+                value={addForm.storage_requirements}
+                onChange={(e) =>
+                  setAddForm({
+                    ...addForm,
+                    storage_requirements: e.target.value,
+                  })
+                }
+              />
+              <Input
+                label="Average Order Qty"
+                type="number"
+                inputMode="numeric"
+                value={addForm.average_order_qty}
+                onChange={(e) =>
+                  setAddForm({
+                    ...addForm,
+                    average_order_qty: e.target.value,
+                  })
+                }
+                min="1"
+              />
+              <Textarea
+                wrapperClassName="sm:col-span-2 lg:col-span-3"
+                label="Notes"
+                rows={2}
+                value={addForm.notes}
+                onChange={(e) =>
+                  setAddForm({ ...addForm, notes: e.target.value })
+                }
+              />
+              <label className="flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={addForm.manufacturer_verified}
+                  onChange={(e) =>
+                    setAddForm({
+                      ...addForm,
+                      manufacturer_verified: e.target.checked,
+                    })
+                  }
+                  className="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                />
+                Manufacturer Verified
+              </label>
             </div>
-            <button type="submit" disabled={saving || !addForm.item_code.trim()} className="rounded-md bg-blue-600 px-6 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
-              {saving ? "Saving..." : "Save Item"}
-            </button>
+            <div className="flex justify-end">
+              <Button
+                type="submit"
+                loading={saving}
+                disabled={!addForm.item_code.trim()}
+                icon="check"
+              >
+                Save Item
+              </Button>
+            </div>
           </form>
         </CollapsibleSection>
 
         <CollapsibleSection title="Bulk upload items (Excel)">
-          <div className="flex gap-3">
-            <button
-              type="button"
+          <div className="flex gap-3 pt-2 flex-wrap">
+            <Button
+              variant="secondary"
+              icon="download"
               onClick={downloadItemTemplate}
-              className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
             >
-              Download Template
-            </button>
-            <button
-              type="button"
+              Download template
+            </Button>
+            <Button
+              icon="upload"
               onClick={() => itemFileInputRef.current?.click()}
-              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
             >
-              Upload Items
-            </button>
+              Upload items
+            </Button>
             <input
               ref={itemFileInputRef}
               type="file"
@@ -574,21 +751,20 @@ export default function ItemsPage() {
         </CollapsibleSection>
 
         <CollapsibleSection title="Bulk upload supplier info (Excel)">
-          <div className="flex gap-3">
-            <button
-              type="button"
+          <div className="flex gap-3 pt-2 flex-wrap">
+            <Button
+              variant="secondary"
+              icon="download"
               onClick={downloadSupplierTemplate}
-              className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
             >
-              Download Supplier Template
-            </button>
-            <button
-              type="button"
+              Download supplier template
+            </Button>
+            <Button
+              icon="upload"
               onClick={() => supplierFileInputRef.current?.click()}
-              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
             >
-              Upload Suppliers
-            </button>
+              Upload suppliers
+            </Button>
             <input
               ref={supplierFileInputRef}
               type="file"
@@ -600,7 +776,6 @@ export default function ItemsPage() {
         </CollapsibleSection>
       </div>
 
-      {/* Items bulk import modal */}
       {itemBulkDiff && (
         <BulkImportModal
           diff={itemBulkDiff}
@@ -611,66 +786,94 @@ export default function ItemsPage() {
       )}
 
       {/* Items table */}
-      <div className="rounded-md border border-gray-200 bg-white overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50 text-left">
-            <tr>
-              {(
-                [
-                  ["item_code", "Item Code"],
-                  ["item_name", "Name"],
-                  ["manufacturer", "Manufacturer"],
-                  ["category", "Category"],
-                ] as [SortColumn, string][]
-              ).map(([col, label]) => (
-                <th
-                  key={col}
-                  onClick={() => handleSort(col)}
-                  className="px-4 py-2 font-medium text-gray-600 cursor-pointer select-none hover:bg-gray-100"
-                >
-                  {label}
-                  {sortArrow(col)}
+      <Card padded={false} className="overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50/70 text-slate-500 text-xs border-b border-slate-200">
+              <tr className="text-left">
+                <SortHeader col="item_code" label="Item" />
+                <SortHeader col="manufacturer" label="Manufacturer" />
+                <SortHeader col="category" label="Category" />
+                <th className="font-semibold uppercase tracking-wider px-5 py-3 text-right">
+                  Shelf life
                 </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {items.length === 0 ? (
-              <tr>
-                <td
-                  colSpan={4}
-                  className="px-4 py-8 text-center text-gray-500"
-                >
-                  No items found.
-                </td>
+                <th className="w-10" />
               </tr>
-            ) : (
-              items.map((item) => (
-                <tr
-                  key={item.id}
-                  onClick={() => router.push(`/items/${item.id}`)}
-                  className="cursor-pointer hover:bg-gray-50"
-                >
-                  <td className="px-4 py-2 font-medium">{item.item_code}</td>
-                  <td className="px-4 py-2">{item.item_name ?? "—"}</td>
-                  <td className="px-4 py-2">{item.manufacturer ?? "—"}</td>
-                  <td className="px-4 py-2">{item.category ?? "—"}</td>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {items.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={5}
+                    className="px-5 py-10 text-center text-slate-500"
+                  >
+                    No items found.
+                  </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+              ) : (
+                items.map((item) => (
+                  <tr
+                    key={item.id}
+                    onClick={() => router.push(`/items/${item.id}`)}
+                    className="cursor-pointer hover:bg-slate-50/60 group transition-colors"
+                  >
+                    <td className="px-5 py-3.5">
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${categoryIconBg(item.category)}`}
+                        >
+                          <Icon name="flask" size={16} />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="font-mono text-xs font-semibold text-slate-900">
+                            {item.item_code}
+                          </div>
+                          <div className="text-sm text-slate-600 truncate">
+                            {item.item_name ?? "—"}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-5 py-3.5 text-slate-700">
+                      {item.manufacturer ?? "—"}
+                    </td>
+                    <td className="px-5 py-3.5">
+                      {item.category ? (
+                        <Badge color={categoryBadgeColor(item.category)}>
+                          {item.category}
+                        </Badge>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3.5 text-right tabular-nums text-slate-600">
+                      {item.shelf_life_days != null
+                        ? `${item.shelf_life_days}d`
+                        : "—"}
+                    </td>
+                    <td className="px-3 text-right">
+                      <Icon
+                        name="chevronRight"
+                        size={14}
+                        className="text-slate-300 group-hover:text-slate-500 transition-colors inline-block"
+                      />
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
 
       <Pagination
         currentPage={currentPage}
         totalPages={totalPages}
         totalCount={totalCount}
         pageSize={PAGE_SIZE}
-        onPageChange={handlePageChange}
+        onPageChange={setCurrentPage}
       />
 
-      {/* Missing references modal for supplier upload */}
       {showMissingRefs && supplierAnalysis && (
         <MissingReferencesModal
           missingItemCodes={supplierAnalysis.missingItemCodes}
