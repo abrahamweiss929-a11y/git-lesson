@@ -5,6 +5,10 @@ import { supabase } from "@/lib/supabase";
 import type { Company } from "@/lib/types";
 import StatusMessage from "@/components/StatusMessage";
 import DeleteConfirmModal from "@/components/DeleteConfirmModal";
+import Card from "@/components/ui/Card";
+import Button from "@/components/ui/Button";
+import Input from "@/components/ui/Input";
+import Icon from "@/components/ui/Icon";
 
 export default function CompaniesPage() {
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -83,13 +87,18 @@ export default function CompaniesPage() {
     setCheckingRefs(false);
 
     const refs: string[] = [];
-    if ((receiptCount ?? 0) > 0) refs.push(`${receiptCount} receipt${receiptCount === 1 ? "" : "s"}`);
-    if ((orderCount ?? 0) > 0) refs.push(`${orderCount} order${orderCount === 1 ? "" : "s"}`);
-    if ((supplierCount ?? 0) > 0) refs.push(`${supplierCount} item-supplier link${supplierCount === 1 ? "" : "s"}`);
+    if ((receiptCount ?? 0) > 0)
+      refs.push(`${receiptCount} receipt${receiptCount === 1 ? "" : "s"}`);
+    if ((orderCount ?? 0) > 0)
+      refs.push(`${orderCount} order${orderCount === 1 ? "" : "s"}`);
+    if ((supplierCount ?? 0) > 0)
+      refs.push(
+        `${supplierCount} item-supplier link${supplierCount === 1 ? "" : "s"}`,
+      );
 
     if (refs.length > 0) {
       setBlockMessage(
-        `This company can't be deleted.\n\nIt's referenced by:\n${refs.map((r) => `• ${r}`).join("\n")}\n\nRemove those records first, then try again.`
+        `This company can't be deleted.\n\nIt's referenced by:\n${refs.map((r) => `• ${r}`).join("\n")}\n\nRemove those records first, then try again.`,
       );
       return;
     }
@@ -116,24 +125,26 @@ export default function CompaniesPage() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-8">
-      <h1 className="text-xl font-bold mb-6">Companies</h1>
-
-      <form onSubmit={handleSubmit} className="flex gap-3 mb-6">
-        <input
-          type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Company name"
-          className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-        />
-        <button
-          type="submit"
-          disabled={saving || !name.trim()}
-          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-        >
-          Add Company
-        </button>
+    <div className="px-8 py-8 max-w-3xl">
+      <form onSubmit={handleSubmit} className="mb-6">
+        <Card className="flex items-end gap-3">
+          <Input
+            wrapperClassName="flex-1"
+            label="Add a company"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Beckman Coulter"
+            icon="building"
+          />
+          <Button
+            type="submit"
+            loading={saving}
+            disabled={!name.trim()}
+            icon="plus"
+          >
+            Add Company
+          </Button>
+        </Card>
       </form>
 
       {status && (
@@ -157,12 +168,12 @@ export default function CompaniesPage() {
       )}
 
       {blockMessage && (
-        <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800 whitespace-pre-line">
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50/70 p-4 text-sm text-amber-900 whitespace-pre-line">
           {blockMessage}
           <button
             type="button"
             onClick={() => setBlockMessage(null)}
-            className="mt-3 block text-xs text-amber-600 hover:text-amber-800 underline"
+            className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-amber-700 hover:text-amber-900 transition-colors"
           >
             Dismiss
           </button>
@@ -170,30 +181,47 @@ export default function CompaniesPage() {
       )}
 
       {companies.length === 0 ? (
-        <p className="text-sm text-gray-500">No companies yet.</p>
+        <Card className="text-sm text-slate-500">No companies yet.</Card>
       ) : (
-        <ul className="divide-y divide-gray-200 rounded-md border border-gray-200 bg-white">
-          {companies.map((c) => (
-            <li
-              key={c.id}
-              className="px-4 py-3 text-sm flex items-center justify-between"
-            >
-              <span>{c.name}</span>
-              <button
-                type="button"
-                onClick={() => handleDeleteClick(c)}
-                disabled={checkingRefs}
-                className="text-gray-400 hover:text-red-600 text-sm disabled:opacity-50"
-                title="Delete company"
+        <Card padded={false} className="overflow-hidden">
+          <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-slate-700">
+              All companies
+            </h2>
+            <span className="text-xs text-slate-500 tabular-nums">
+              {companies.length} total
+            </span>
+          </div>
+          <ul className="divide-y divide-slate-100">
+            {companies.map((c) => (
+              <li
+                key={c.id}
+                className="px-5 py-3 text-sm flex items-center justify-between group hover:bg-slate-50/60 transition-colors"
               >
-                🗑
-              </button>
-            </li>
-          ))}
-        </ul>
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-500 flex items-center justify-center shrink-0 group-hover:bg-teal-50 group-hover:text-teal-600 transition-colors">
+                    <Icon name="building" size={14} />
+                  </div>
+                  <span className="font-medium text-slate-900 truncate">
+                    {c.name}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteClick(c)}
+                  disabled={checkingRefs}
+                  className="rounded-lg p-1.5 text-slate-300 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50 transition-colors opacity-0 group-hover:opacity-100"
+                  title="Delete company"
+                  aria-label={`Delete ${c.name}`}
+                >
+                  <Icon name="trash" size={14} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </Card>
       )}
 
-      {/* Delete confirmation modal */}
       {deleteTarget && (
         <DeleteConfirmModal
           title={`Delete company "${deleteTarget.name}"?`}
