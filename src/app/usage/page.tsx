@@ -4,6 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import StatusMessage from "@/components/StatusMessage";
 import DeleteConfirmModal from "@/components/DeleteConfirmModal";
+import Card from "@/components/ui/Card";
+import Button from "@/components/ui/Button";
+import Input from "@/components/ui/Input";
+import Icon from "@/components/ui/Icon";
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -30,11 +34,9 @@ export default function UsagePage() {
 
   const itemRef = useRef<HTMLInputElement>(null);
 
-  // --- Recent usage (last 48 hours) ---
   const [recentUsage, setRecentUsage] = useState<RecentUsage[]>([]);
   const [loadingRecent, setLoadingRecent] = useState(true);
 
-  // --- Delete state ---
   const [deleteTarget, setDeleteTarget] = useState<RecentUsage | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -52,13 +54,21 @@ export default function UsagePage() {
       .order("created_at", { ascending: false });
 
     setRecentUsage(
-      (data ?? []).map((row: { id: number; item_number: string; lot_number: string; parts_used: number; date: string }) => ({
-        id: row.id,
-        item_number: row.item_number,
-        lot_number: row.lot_number,
-        parts_used: row.parts_used,
-        date: row.date,
-      }))
+      (data ?? []).map(
+        (row: {
+          id: number;
+          item_number: string;
+          lot_number: string;
+          parts_used: number;
+          date: string;
+        }) => ({
+          id: row.id,
+          item_number: row.item_number,
+          lot_number: row.lot_number,
+          parts_used: row.parts_used,
+          date: row.date,
+        }),
+      ),
     );
     setLoadingRecent(false);
   }, []);
@@ -113,9 +123,7 @@ export default function UsagePage() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-8">
-      <h1 className="text-xl font-bold mb-6">Record Usage</h1>
-
+    <div className="px-8 py-8 max-w-3xl">
       {status && (
         <div className="mb-4">
           <StatusMessage
@@ -126,76 +134,65 @@ export default function UsagePage() {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-4 max-w-md">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Item Number
-          </label>
-          <input
-            ref={itemRef}
-            type="text"
-            value={itemNumber}
-            onChange={(e) => setItemNumber(e.target.value)}
-            placeholder="Item #"
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-          />
+      <Card>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Input
+              ref={itemRef}
+              label="Item Number"
+              value={itemNumber}
+              onChange={(e) => setItemNumber(e.target.value)}
+              placeholder="Item #"
+              className="font-mono"
+            />
+            <Input
+              label="Lot Number"
+              value={lotNumber}
+              onChange={(e) => setLotNumber(e.target.value)}
+              placeholder="Lot #"
+              className="font-mono"
+            />
+            <Input
+              label="Parts Used"
+              type="number"
+              inputMode="numeric"
+              value={partsUsed}
+              onChange={(e) => setPartsUsed(e.target.value)}
+              min="1"
+            />
+            <Input
+              label="Date"
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+            />
+          </div>
+
+          <div className="flex justify-end">
+            <Button
+              type="submit"
+              loading={saving}
+              disabled={!itemNumber.trim() || !lotNumber.trim()}
+              icon="check"
+            >
+              Record Usage
+            </Button>
+          </div>
+        </form>
+      </Card>
+
+      <div className="mt-10">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-base font-semibold text-slate-900">
+            Recent usage
+          </h2>
+          <span className="text-xs text-slate-500">
+            Last 48 hours
+            {recentUsage.length > 0 ? ` · ${recentUsage.length} entries` : ""}
+          </span>
         </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Lot Number
-          </label>
-          <input
-            type="text"
-            value={lotNumber}
-            onChange={(e) => setLotNumber(e.target.value)}
-            placeholder="Lot #"
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Parts Used
-          </label>
-          <input
-            type="number"
-            inputMode="numeric"
-            value={partsUsed}
-            onChange={(e) => setPartsUsed(e.target.value)}
-            min="1"
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Date
-          </label>
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-          />
-        </div>
-
-        <button
-          type="submit"
-          disabled={saving || !itemNumber.trim() || !lotNumber.trim()}
-          className="w-full rounded-md bg-blue-600 px-6 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-        >
-          {saving ? "Saving..." : "Record Usage"}
-        </button>
-      </form>
-
-      {/* Recent Usage (last 48 hours) */}
-      <div className="mt-10 border-t pt-6">
-        <h2 className="text-lg font-semibold text-gray-800 mb-4">
-          Recent Usage (last 48 hours)
-        </h2>
         {deleteError && (
-          <div className="mb-3">
+          <div className="mb-4">
             <StatusMessage
               type="error"
               message={`Delete failed: ${deleteError}`}
@@ -204,58 +201,70 @@ export default function UsagePage() {
           </div>
         )}
         {loadingRecent ? (
-          <p className="text-sm text-gray-500">Loading...</p>
+          <Card className="text-sm text-slate-500">Loading…</Card>
         ) : recentUsage.length === 0 ? (
-          <p className="text-sm text-gray-500">
+          <Card className="text-sm text-slate-500">
             No usage entries in the last 48 hours.
-          </p>
+          </Card>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-gray-500">
-                  <th className="pb-2 pr-4 font-medium">Date</th>
-                  <th className="pb-2 pr-4 font-medium">Item Number</th>
-                  <th className="pb-2 pr-4 font-medium">Lot Number</th>
-                  <th className="pb-2 pr-4 font-medium">Parts Used</th>
-                  <th className="pb-2 font-medium"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentUsage.map((u) => (
-                  <tr
-                    key={u.id}
-                    className="border-b border-gray-100 hover:bg-gray-50"
-                  >
-                    <td className="py-2 pr-4 text-gray-700">{u.date}</td>
-                    <td className="py-2 pr-4 text-gray-700">
-                      {u.item_number}
-                    </td>
-                    <td className="py-2 pr-4 text-gray-700">
-                      {u.lot_number}
-                    </td>
-                    <td className="py-2 pr-4 text-gray-600">
-                      {u.parts_used}
-                    </td>
-                    <td className="py-2 text-right">
-                      <button
-                        type="button"
-                        onClick={() => setDeleteTarget(u)}
-                        className="text-gray-400 hover:text-red-600 text-sm"
-                        title="Delete usage entry"
-                      >
-                        🗑
-                      </button>
-                    </td>
+          <Card padded={false} className="overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50/70 text-slate-500 text-xs border-b border-slate-200">
+                  <tr className="text-left">
+                    <th className="font-semibold uppercase tracking-wider px-5 py-3">
+                      Date
+                    </th>
+                    <th className="font-semibold uppercase tracking-wider px-5 py-3">
+                      Item #
+                    </th>
+                    <th className="font-semibold uppercase tracking-wider px-5 py-3">
+                      Lot #
+                    </th>
+                    <th className="font-semibold uppercase tracking-wider px-5 py-3 text-right">
+                      Parts used
+                    </th>
+                    <th className="px-3" />
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {recentUsage.map((u) => (
+                    <tr
+                      key={u.id}
+                      className="group hover:bg-slate-50/60 transition-colors"
+                    >
+                      <td className="px-5 py-3 text-slate-700 tabular-nums">
+                        {u.date}
+                      </td>
+                      <td className="px-5 py-3 font-mono text-xs font-semibold text-slate-900">
+                        {u.item_number}
+                      </td>
+                      <td className="px-5 py-3 font-mono text-xs text-slate-700">
+                        {u.lot_number}
+                      </td>
+                      <td className="px-5 py-3 text-right tabular-nums font-semibold text-slate-900">
+                        {u.parts_used}
+                      </td>
+                      <td className="px-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => setDeleteTarget(u)}
+                          className="rounded-lg p-1.5 text-slate-300 hover:bg-rose-50 hover:text-rose-600 transition-colors opacity-0 group-hover:opacity-100"
+                          title="Delete usage entry"
+                          aria-label="Delete usage entry"
+                        >
+                          <Icon name="trash" size={14} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
         )}
       </div>
 
-      {/* Delete confirmation modal */}
       {deleteTarget && (
         <DeleteConfirmModal
           title="Delete this usage entry?"
