@@ -4,6 +4,7 @@ import type { AskApiResponse } from "@/lib/ask/types";
 import AnswerTable from "./AnswerTable";
 import FollowupSuggestions from "./FollowupSuggestions";
 import DetailsPanel from "./DetailsPanel";
+import Icon from "@/components/ui/Icon";
 
 interface AssistantMessageProps {
   response: AskApiResponse;
@@ -17,25 +18,30 @@ export default function AssistantMessage({
   const isError = response.result_type === "error";
 
   return (
-    <div className="flex items-start gap-3 px-4 py-3">
-      <div
-        className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-sm ${
-          isError ? "bg-red-100 text-red-600" : "bg-blue-100 text-blue-700"
-        }`}
-      >
-        AI
-      </div>
-      <div className="flex-1 min-w-0 space-y-3">
-        {/* Answer text */}
+    <div className="flex gap-4">
+      {isError ? (
+        <div className="w-10 h-10 rounded-xl shrink-0 flex items-center justify-center text-white bg-rose-500 shadow-lg shadow-rose-500/20">
+          <Icon name="warning" size={16} />
+        </div>
+      ) : (
         <div
-          className={`text-sm whitespace-pre-wrap ${
-            isError ? "text-red-700" : "text-gray-900"
+          className="w-10 h-10 rounded-xl shrink-0 flex items-center justify-center text-white shadow-lg shadow-amber-500/20"
+          style={{
+            background: "linear-gradient(135deg, #0D9488 0%, #F59E0B 100%)",
+          }}
+        >
+          <Icon name="sparkle" size={16} />
+        </div>
+      )}
+      <div className="flex-1 min-w-0 space-y-4">
+        <p
+          className={`text-sm whitespace-pre-wrap leading-relaxed ${
+            isError ? "text-rose-700" : "text-slate-900"
           }`}
         >
           {response.answer_text}
-        </div>
+        </p>
 
-        {/* Table (if any) */}
         {response.table &&
           response.table.columns.length > 0 &&
           response.table.rows.length > 0 && (
@@ -45,7 +51,6 @@ export default function AssistantMessage({
             />
           )}
 
-        {/* Followup suggestions */}
         {response.suggested_followups &&
           response.suggested_followups.length > 0 && (
             <FollowupSuggestions
@@ -54,7 +59,6 @@ export default function AssistantMessage({
             />
           )}
 
-        {/* Details panel (tools used, SQL) */}
         {response.tools_used && response.tools_used.length > 0 && (
           <DetailsPanel
             toolsUsed={response.tools_used}

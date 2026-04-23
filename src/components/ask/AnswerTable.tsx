@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import DownloadDropdown from "./DownloadDropdown";
+import Icon from "@/components/ui/Icon";
 import { downloadAnswerAsExcel } from "@/lib/ask/export-excel";
 import { downloadAnswerAsPdf } from "@/lib/ask/export-pdf";
 
@@ -61,7 +61,7 @@ export default function AnswerTable({ table, question }: AnswerTableProps) {
   }, [table.rows, table.columns, sortKey, sortDir]);
 
   function formatCell(value: unknown, type: string): string {
-    if (value === null || value === undefined) return "\u2014";
+    if (value === null || value === undefined) return "—";
     if (type === "currency") {
       const num = Number(value);
       return Number.isFinite(num)
@@ -83,46 +83,50 @@ export default function AnswerTable({ table, question }: AnswerTableProps) {
   }
 
   return (
-    <div className="border border-gray-200 rounded-lg overflow-hidden">
-      {/* Header with download */}
-      <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border-b border-gray-200">
-        <span className="text-xs text-gray-500">
-          {table.rows.length} row{table.rows.length !== 1 ? "s" : ""}
-        </span>
-        <DownloadDropdown onExcel={handleExcel} onPdf={handlePdf} />
-      </div>
-
-      {/* Scrollable table */}
+    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
       <div className="overflow-x-auto max-h-96 overflow-y-auto">
         <table className="w-full text-sm">
-          <thead className="sticky top-0 bg-gray-50">
+          <thead className="sticky top-0 bg-slate-50/70 text-slate-500 text-xs border-b border-slate-200 backdrop-blur-sm">
             <tr>
-              {table.columns.map((col) => (
-                <th
-                  key={col.key}
-                  onClick={() => handleSort(col.key)}
-                  className="px-3 py-2 text-left text-xs font-medium text-gray-600 cursor-pointer hover:bg-gray-100 select-none whitespace-nowrap"
-                >
-                  {col.label}
-                  {sortKey === col.key && (
-                    <span className="ml-1">
-                      {sortDir === "asc" ? "\u25B2" : "\u25BC"}
+              {table.columns.map((col) => {
+                const isNumeric =
+                  col.type === "number" || col.type === "currency";
+                const active = sortKey === col.key;
+                return (
+                  <th
+                    key={col.key}
+                    onClick={() => handleSort(col.key)}
+                    className={`px-4 py-2.5 font-semibold uppercase tracking-wider cursor-pointer select-none whitespace-nowrap hover:text-slate-700 transition-colors ${isNumeric ? "text-right" : "text-left"}`}
+                  >
+                    <span
+                      className={`inline-flex items-center gap-1 ${isNumeric ? "justify-end w-full" : ""}`}
+                    >
+                      {col.label}
+                      {active && (
+                        <Icon
+                          name={sortDir === "asc" ? "sortUp" : "sortDown"}
+                          size={12}
+                          className="text-slate-500"
+                        />
+                      )}
                     </span>
-                  )}
-                </th>
-              ))}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
+          <tbody className="divide-y divide-slate-100">
             {sortedRows.map((row, i) => (
-              <tr key={i} className="hover:bg-gray-50">
-                {table.columns.map((col) => (
+              <tr key={i} className="hover:bg-slate-50/60 transition-colors">
+                {table.columns.map((col, ci) => (
                   <td
                     key={col.key}
-                    className={`px-3 py-2 whitespace-nowrap ${
+                    className={`px-4 py-3 whitespace-nowrap ${
                       col.type === "number" || col.type === "currency"
-                        ? "text-right tabular-nums"
-                        : ""
+                        ? "text-right tabular-nums text-slate-700"
+                        : ci === 0
+                          ? "font-medium text-slate-900"
+                          : "text-slate-700"
                     }`}
                   >
                     {formatCell(row[col.key], col.type)}
@@ -132,6 +136,27 @@ export default function AnswerTable({ table, question }: AnswerTableProps) {
             ))}
           </tbody>
         </table>
+      </div>
+      <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50/70 border-t border-slate-100 text-xs">
+        <span className="text-slate-500 tabular-nums">
+          {table.rows.length} row{table.rows.length !== 1 ? "s" : ""}
+        </span>
+        <div className="flex gap-1">
+          <button
+            onClick={handleExcel}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md hover:bg-white text-emerald-700 font-medium transition-colors"
+          >
+            <Icon name="excel" size={12} />
+            Excel
+          </button>
+          <button
+            onClick={handlePdf}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md hover:bg-white text-rose-700 font-medium transition-colors"
+          >
+            <Icon name="pdf" size={12} />
+            PDF
+          </button>
+        </div>
       </div>
     </div>
   );

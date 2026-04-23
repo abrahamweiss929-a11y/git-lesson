@@ -7,6 +7,7 @@ import MessageInput from "@/components/ask/MessageInput";
 import UserMessage from "@/components/ask/UserMessage";
 import AssistantMessage from "@/components/ask/AssistantMessage";
 import LoadingMessage from "@/components/ask/LoadingMessage";
+import Icon from "@/components/ui/Icon";
 
 type Message =
   | { role: "user"; content: string; id: string }
@@ -20,7 +21,6 @@ export default function AskPage() {
   const feedRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  // Auto-scroll to bottom when new messages arrive (only if near bottom)
   const scrollToBottom = useCallback(() => {
     const feed = feedRef.current;
     if (!feed) return;
@@ -37,7 +37,6 @@ export default function AskPage() {
     scrollToBottom();
   }, [messages, pending, scrollToBottom]);
 
-  // Build history for API (last 10 turns, text only)
   function buildHistory() {
     const historyMessages = messages.slice(-10);
     return historyMessages.map((m) => {
@@ -66,7 +65,6 @@ export default function AskPage() {
     setMessages((prev) => [...prev, userMsg]);
     setPending(true);
 
-    // Create abort controller for this request
     const abortController = new AbortController();
     abortRef.current = abortController;
 
@@ -102,7 +100,6 @@ export default function AskPage() {
         err instanceof Error ? err.message : "Something went wrong.";
       setError(errorMsg);
 
-      // Add error as an assistant message
       const errorResponse: AskApiResponse = {
         answer_text: errorMsg,
         result_type: "error",
@@ -125,7 +122,6 @@ export default function AskPage() {
   }
 
   function handleNewConversation() {
-    // Cancel any in-flight request
     if (abortRef.current) {
       abortRef.current.abort();
     }
@@ -140,28 +136,31 @@ export default function AskPage() {
   }
 
   const hasMessages = messages.length > 0;
+  // Suppress unused-var eslint since `error` is surfaced via the assistant message
+  void error;
 
   return (
-    <div className="flex flex-col h-[calc(100vh-3.5rem)]">
-      {/* Header */}
-      <div className="border-b border-gray-200 bg-white px-4 py-3 flex items-center justify-between shrink-0">
-        <h1 className="text-lg font-semibold text-gray-900">Ask</h1>
-        {hasMessages && (
+    <div className="flex flex-col h-[calc(100vh-72px)]">
+      {/* New conversation affordance — floats above content when there's history */}
+      {hasMessages && (
+        <div className="shrink-0 px-8 pt-4 flex justify-end max-w-4xl mx-auto w-full">
           <button
+            type="button"
             onClick={handleNewConversation}
-            className="text-sm text-gray-500 hover:text-gray-700 px-2 py-1 rounded hover:bg-gray-100"
+            className="inline-flex items-center gap-1.5 text-sm text-slate-600 hover:text-teal-700 hover:bg-teal-50/60 px-3 py-1.5 rounded-lg font-medium transition-colors"
           >
-            + New conversation
+            <Icon name="plus" size={14} />
+            New conversation
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Message feed */}
       <div ref={feedRef} className="flex-1 overflow-y-auto">
         {!hasMessages && !pending ? (
           <EmptyState onSelectExample={handleFollowup} />
         ) : (
-          <div className="max-w-4xl mx-auto divide-y divide-gray-100">
+          <div className="max-w-4xl mx-auto px-8 py-6 space-y-6">
             {messages.map((msg) =>
               msg.role === "user" ? (
                 <UserMessage key={msg.id} content={msg.content} />
@@ -171,14 +170,13 @@ export default function AskPage() {
                   response={msg.response}
                   onFollowup={handleFollowup}
                 />
-              )
+              ),
             )}
             {pending && <LoadingMessage />}
           </div>
         )}
       </div>
 
-      {/* Input */}
       <MessageInput
         value={inputValue}
         onChange={setInputValue}
